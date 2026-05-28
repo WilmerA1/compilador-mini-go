@@ -1,0 +1,14 @@
+# Carpetas de compilación de .NET
+bin/
+obj/
+
+# Archivos temporales de VS Code y editores
+.vscode/
+*.user
+*.suo
+*.sln.docuser
+
+# Evitar subir ejecutables o librerías compiladas
+*.dll
+*.exe
+*.pdb
