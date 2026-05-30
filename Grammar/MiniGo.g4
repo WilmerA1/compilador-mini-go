@@ -26,9 +26,9 @@ innerVarDecls
     ;
 
 singleVarDecl
-    : identifierList declType '=' expressionList
-    | identifierList '=' expressionList
-    | singleVarDeclNoExps
+    : identifierList declType '=' expressionList                                #varDeclWithTypeAndInit
+    | identifierList '=' expressionList                                         #varDeclWithInitOnly
+    | singleVarDeclNoExps                                                       #varDeclNoInit
     ;
 
 singleVarDeclNoExps
@@ -63,11 +63,11 @@ funcArgDecls
 /* ============ TIPOS ============ */
 
 declType
-    : '(' declType ')'
-    | IDENTIFIER
-    | sliceDeclType
-    | arrayDeclType
-    | structDeclType
+    : '(' declType ')'                                                          #typeParen
+    | IDENTIFIER                                                                #typePrimitiveOrCustom
+    | sliceDeclType                                                             #typeSlice
+    | arrayDeclType                                                             #typeArray
+    | structDeclType                                                            #typeStruct
     ;
 
 sliceDeclType
@@ -100,13 +100,13 @@ identifierList
  */
 
 expression
-    : primaryExpression                                            # PrimaryExpr
-    | ('+' | '-' | '!' | '^') expression                           # UnaryExpr
-    | expression ('*' | '/' | '%' | '<<' | '>>' | '&' | '&^') expression  # MulExpr
-    | expression ('+' | '-' | '|' | '^') expression                # AddExpr
-    | expression ('==' | '!=' | '<' | '<=' | '>' | '>=') expression # RelExpr
-    | expression '&&' expression                                   # AndExpr
-    | expression '||' expression                                   # OrExpr
+    : primaryExpression                                                         # PrimaryExpr
+    | ('+' | '-' | '!' | '^') expression                                        # UnaryExpr
+    | expression ('*' | '/' | '%' | '<<' | '>>' | '&' | '&^') expression        # MulExpr
+    | expression ('+' | '-' | '|' | '^') expression                             # AddExpr
+    | expression ('==' | '!=' | '<' | '<=' | '>' | '>=') expression             # RelExpr
+    | expression '&&' expression                                                # AndExpr
+    | expression '||' expression                                                # OrExpr
     ;
 
 expressionList
@@ -172,32 +172,32 @@ block
     ;
 
 statement
-    : 'print'   '(' expressionList? ')' ';'
-    | 'println' '(' expressionList? ')' ';'
-    | 'return' expression? ';'
-    | 'break' ';'
-    | 'continue' ';'
-    | simpleStatement ';'
-    | block ';'
-    | switchStatement ';'
-    | ifStatement ';'
-    | loopStatement ';'
-    | typeDecl
-    | variableDecl
+    : 'print'   '(' expressionList? ')' ';'                                     #printStmt
+    | 'println' '(' expressionList? ')' ';'                                     #printlnStmt
+    | 'return' expression? ';'                                                  #returnStmt
+    | 'break' ';'                                                               #breakStmt
+    | 'continue' ';'                                                            #continueStmt
+    | simpleStatement ';'                                                       #simpleStmtWrapper
+    | block ';'                                                                 #blockStmtWrapper
+    | switchStatement ';'                                                       #switchStmtWrapper
+    | ifStatement ';'                                                           #ifStmtWrapper
+    | loopStatement ';'                                                         #loopStmtWrapper
+    | typeDecl                                                                  #typeDeclWrapper
+    | variableDecl                                                              #varDeclWrapper
     ;
 
 simpleStatement
-    : /* vacío */                           #emptyStmt
-    | expressionList ':=' expressionList    #shortVarDeclStmt
-    | assignmentStatement                   #assignStmt
-    | expression ( '++' | '--' )            #incDecStmt
-    | expression                            #exprStmt 
+    : /* vacío */                                                               #emptyStmt
+    | expressionList ':=' expressionList                                        #shortVarDeclStmt
+    | assignmentStatement                                                       #assignStmt
+    | expression ( '++' | '--' )                                                #incDecStmt
+    | expression                                                                #exprStmt 
     ;
 
 assignmentStatement
-    : expressionList '=' expressionList                # assignSimple
+    : expressionList '=' expressionList                                         # assignSimple
     | expression ( '+=' | '-=' | '*=' | '/=' | '%=' 
-                 | '&=' | '|=' | '^=' | '<<=' | '>>=' | '&^=' ) expression # assignCompound
+                 | '&=' | '|=' | '^=' | '<<=' | '>>=' | '&^=' ) expression      # assignCompound
     ;
 
 /* IF - Resuelve dangling-else por greedy matching del 'else' al 'if' más cercano */
@@ -230,8 +230,8 @@ expressionCaseClause
     ;
 
 expressionSwitchCase
-    : 'case' expressionList
-    | 'default'
+    : 'case' expressionList                                                     #switchCaseExpr
+    | 'default'                                                                 #switchCaseDefault
     ;
 
 /* ============ LEXER ============ */
