@@ -1,0 +1,5 @@
+package main;
+
+func saludo() int {
+    return 1;
+};

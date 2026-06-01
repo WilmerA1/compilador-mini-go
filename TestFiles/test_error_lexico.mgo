@@ -1,0 +1,8 @@
+package main;
+
+var x @ int;
+
+func main() int {
+    var y $ int;
+    return 0;
+};

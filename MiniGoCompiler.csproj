@@ -1,25 +1,39 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <NoWarn>$(NoWarn);CS3021;CS2002</NoWarn>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>    
+    <NuGetAuditLevel>critical</NuGetAuditLevel>
   </PropertyGroup>
 
   <ItemGroup>
-    <Antlr4 Include="Grammar\MiniGo.g4">
-      <Generator>MSBuild</Generator>
-      <CustomToolNamespace>MiniGoCompiler</CustomToolNamespace>
-      <Visitor>true</Visitor>
-      <Listener>true</Listener>
-    </Antlr4>
+  <PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
+</ItemGroup>
+
+<ItemGroup>
+  <PackageReference Include="Antlr4BuildTasks" Version="12.8.0">
+    <PrivateAssets>all</PrivateAssets>
+    <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+  </PackageReference>
+</ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia"               Version="11.2.3" />
+    <PackageReference Include="Avalonia.Desktop"       Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Fonts.Inter"   Version="11.2.3" />
+    <PackageReference Include="Avalonia.Controls.DataGrid"  Version="11.2.3" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Antlr4" Version="4.6.6" />
-    <PackageReference Include="Antlr4.Runtime" Version="4.6.6" />
+    <Antlr4 Include="Grammar\MiniGo.g4">
+      <Package>MiniGoCompiler</Package>
+      <Listener>false</Listener>
+      <Visitor>true</Visitor>
+    </Antlr4>
   </ItemGroup>
 
 </Project>
