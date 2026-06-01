@@ -19,6 +19,7 @@ namespace MiniGoCompiler
         }
 
         public void SyntaxError(
+            System.IO.TextWriter output,
             IRecognizer          recognizer,
             IToken               offendingSymbol,
             int                  line,
@@ -36,7 +37,8 @@ namespace MiniGoCompiler
             ));
         }
 
-        public void SyntaxError(            
+        public void SyntaxError(   
+            System.IO.TextWriter output,         
             IRecognizer          recognizer,
             int                  offendingSymbol,
             int                  line,
