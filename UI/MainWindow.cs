@@ -304,9 +304,7 @@ namespace MiniGoCompiler.UI
                     },
                     Mensaje = diag.Message
                 });
-            }
-
-            File.AppendAllText("debug_output.txt", $"\nDiagnosticRows después: {_diagnosticRows.Count}");
+            }            
 
             int total  = DiagnosticCollector.Instance.TotalCount;
             int shown  = _diagnosticRows.Count;

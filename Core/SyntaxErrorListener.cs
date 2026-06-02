@@ -37,8 +37,17 @@ namespace MiniGoCompiler
             ));
         }
 
-        public void SyntaxError(   
-            System.IO.TextWriter output,         
+        /// <summary>
+        /// NOTA ARQUITECTURAL: En la gramática MiniGo.g4 existe la regla
+        /// ERROR_CHAR : . ; que captura cualquier carácter no reconocido
+        /// como token válido. Por eso ANTLR nunca invoca este método en
+        /// la práctica — los errores léxicos reales son detectados por el
+        /// foreach de ERROR_CHAR en CompilerPipeline.Run().
+        /// Esta sobrecarga se mantiene para cumplir la interfaz y como
+        /// salvaguarda ante futuras modificaciones de la gramática.
+        /// </summary>
+        public void SyntaxError(
+            System.IO.TextWriter output,
             IRecognizer          recognizer,
             int                  offendingSymbol,
             int                  line,
