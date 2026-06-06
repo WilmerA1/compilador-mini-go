@@ -109,20 +109,48 @@ namespace MiniGoCompiler
             return null;
         }
 
-        // Scope extra para la variable del init en: for init; cond; post { }
+        // for — scope del init + verificación de condición bool
         public override MiniGoType? VisitLoopStatement(
             [NotNull] MiniGoParser.LoopStatementContext context)
         {
-            bool hasInit = context.simpleStatement() is { Length: > 0 };
+            var simpleStmts = context.simpleStatement();
+            bool hasInit    = simpleStmts is { Length: > 0 };
+
             if (hasInit)
             {
+                // Forma: for init; cond?; post { }
                 _scopes.PushScope();
-                VisitChildren(context);
+                Visit(simpleStmts[0]);                      // init
+                var cond = context.expression();
+                if (cond != null)
+                {
+                    var condType = Visit(cond);
+                    if (condType is not null and not ErrorType
+                        && !TypesCompatible(TBool, condType))
+                    {
+                        AddError(cond.Start.Line, cond.Start.Column,
+                            $"condición del 'for' debe ser bool, se recibió '{condType}'");
+                    }
+                }
+                if (simpleStmts.Length > 1) Visit(simpleStmts[1]); // post
+                Visit(context.block());
                 _scopes.PopScope();
             }
             else
             {
-                VisitChildren(context);
+                // Forma: for expr? { }
+                var cond = context.expression();
+                if (cond != null)
+                {
+                    var condType = Visit(cond);
+                    if (condType is not null and not ErrorType
+                        && !TypesCompatible(TBool, condType))
+                    {
+                        AddError(cond.Start.Line, cond.Start.Column,
+                            $"condición del 'for' debe ser bool, se recibió '{condType}'");
+                    }
+                }
+                Visit(context.block());
             }
             return null;
         }
@@ -212,6 +240,126 @@ namespace MiniGoCompiler
             return null;
         }
 
+        // ═════════════════════════════════════════════════════════════════════
+        // STATEMENTS — return, if, for (condición), asignaciones, print
+        // ═════════════════════════════════════════════════════════════════════
+
+        // return expr?
+        public override MiniGoType? VisitReturnStmt(
+            [NotNull] MiniGoParser.ReturnStmtContext context)
+        {
+            if (context.expression() == null)
+            {
+                // return vacío → función debe ser void
+                if (_currentReturnType is not null
+                    && !TypesCompatible(TVoid, _currentReturnType))
+                {
+                    AddError(context.Start.Line, context.Start.Column,
+                        $"función debe retornar '{_currentReturnType}', " +
+                        $"no se puede retornar vacío");
+                }
+                return null;
+            }
+
+            var retType = Visit(context.expression());
+            if (_currentReturnType is not null
+                && retType is not null and not ErrorType
+                && !TypesCompatible(_currentReturnType, retType))
+            {
+                AddError(context.Start.Line, context.Start.Column,
+                    $"tipo de retorno incorrecto: se esperaba '{_currentReturnType}', " +
+                    $"se retornó '{retType}'");
+            }
+            return retType;
+        }
+
+        // if (simpleStmt;)? expr block elseClause?
+        public override MiniGoType? VisitIfStmtWrapper(
+            [NotNull] MiniGoParser.IfStmtWrapperContext context)
+            => Visit(context.ifStatement());
+
+        public override MiniGoType? VisitIfStatement(
+            [NotNull] MiniGoParser.IfStatementContext context)
+        {
+            bool hasInit = context.simpleStatement() != null;
+            if (hasInit) _scopes.PushScope();
+
+            if (hasInit) Visit(context.simpleStatement());
+
+            var condType = Visit(context.expression());
+            if (condType is not null and not ErrorType
+                && !TypesCompatible(TBool, condType))
+            {
+                AddError(context.expression().Start.Line,
+                         context.expression().Start.Column,
+                    $"condición del 'if' debe ser bool, se recibió '{condType}'");
+            }
+
+            Visit(context.block());
+            if (context.elseClause() != null) Visit(context.elseClause());
+
+            if (hasInit) _scopes.PopScope();
+            return null;
+        }
+
+        // for: verificar condición bool (el scope del init ya lo maneja VisitLoopStatement)
+        // Se sobreescribe VisitLoopStatement para agregar la verificación de condición.
+        // NOTA: reemplaza la versión de scope-only del primer commit.
+
+        // Asignación simple: lhs = rhs
+        public override MiniGoType? VisitAssignSimple(
+            [NotNull] MiniGoParser.AssignSimpleContext context)
+        {
+            var lists    = context.expressionList();
+            var lhsExprs = lists[0].expression();
+            var rhsExprs = lists[1].expression();
+
+            for (int i = 0; i < Math.Min(lhsExprs.Length, rhsExprs.Length); i++)
+            {
+                var lhsType = Visit(lhsExprs[i]);
+                var rhsType = Visit(rhsExprs[i]);
+                if (lhsType is not null and not ErrorType
+                    && rhsType is not null and not ErrorType
+                    && !TypesCompatible(lhsType, rhsType))
+                {
+                    AddError(lhsExprs[i].Start.Line, lhsExprs[i].Start.Column,
+                        $"no se puede asignar '{rhsType}' a '{lhsType}'");
+                }
+            }
+            return null;
+        }
+
+        // Asignación compuesta: lhs += rhs  etc.
+        public override MiniGoType? VisitAssignCompound(
+            [NotNull] MiniGoParser.AssignCompoundContext context)
+        {
+            var lhsType = Visit(context.expression(0));
+            var rhsType = Visit(context.expression(1));
+            if (lhsType is not null and not ErrorType
+                && rhsType is not null and not ErrorType
+                && !TypesCompatible(lhsType, rhsType))
+            {
+                AddError(context.Start.Line, context.Start.Column,
+                    $"asignación compuesta: tipos incompatibles '{lhsType}' y '{rhsType}'");
+            }
+            return null;
+        }
+
+        // print / println — no restringen tipos, solo visitan argumentos
+        public override MiniGoType? VisitPrintStmt(
+            [NotNull] MiniGoParser.PrintStmtContext context)
+        {
+            if (context.expressionList() != null) Visit(context.expressionList());
+            return null;
+        }
+
+        public override MiniGoType? VisitPrintlnStmt(
+            [NotNull] MiniGoParser.PrintlnStmtContext context)
+        {
+            if (context.expressionList() != null) Visit(context.expressionList());
+            return null;
+        }
+
         // type Alias T
         public override MiniGoType? VisitSingleTypeDecl(
             [NotNull] MiniGoParser.SingleTypeDeclContext context)
@@ -271,6 +419,231 @@ namespace MiniGoCompiler
         public override MiniGoType? VisitPrimaryExpr(
             [NotNull] MiniGoParser.PrimaryExprContext context)
             => Visit(context.primaryExpression());
+
+        // ═════════════════════════════════════════════════════════════════════
+        // PRIMARY EXPRESSION — llamadas, selectores, índices, append/len/cap
+        // ═════════════════════════════════════════════════════════════════════
+
+        public override MiniGoType? VisitPrimaryExpression(
+            [NotNull] MiniGoParser.PrimaryExpressionContext context)
+        {
+            // Caso base: solo un operand
+            if (context.operand() != null)
+                return Visit(context.operand());
+
+            // append(slice, elem) → devuelve el mismo tipo de slice
+            if (context.appendExpression() != null)
+            {
+                var ae        = context.appendExpression();
+                var sliceType = Visit(ae.expression(0));
+                Visit(ae.expression(1));
+                return sliceType;
+            }
+
+            // len(expr) → int
+            if (context.lengthExpression() != null)
+            {
+                Visit(context.lengthExpression().expression());
+                return TInt;
+            }
+
+            // cap(expr) → int
+            if (context.capExpression() != null)
+            {
+                Visit(context.capExpression().expression());
+                return TInt;
+            }
+
+            // primaryExpression.field → acceso a campo de struct
+            if (context.selector() != null)
+            {
+                var baseType = Visit(context.primaryExpression());
+                if (baseType is StructType st)
+                {
+                    string field = context.selector().IDENTIFIER().GetText();
+                    if (st.Fields.TryGetValue(field, out var fieldType))
+                        return fieldType;
+                    return TypeError(
+                        context.selector().IDENTIFIER().Symbol.Line,
+                        context.selector().IDENTIFIER().Symbol.Column,
+                        $"el tipo struct no tiene campo '{field}'");
+                }
+                if (baseType is not null and not ErrorType)
+                    AddError(context.selector().Start.Line, context.selector().Start.Column,
+                        $"acceso a campo '.' en tipo '{baseType}' que no es struct");
+                return ErrorType.Instance;
+            }
+
+            // primaryExpression[expr] → acceso a array o slice
+            if (context.index() != null)
+            {
+                var baseType = Visit(context.primaryExpression());
+                var idxType  = Visit(context.index().expression());
+                if (idxType is not null and not ErrorType && !TypesCompatible(TInt, idxType))
+                    AddError(context.index().Start.Line, context.index().Start.Column,
+                        $"índice debe ser int, se recibió '{idxType}'");
+                if (baseType is ArrayType at) return at.ElemType;
+                if (baseType is SliceType sl) return sl.ElemType;
+                if (baseType is not null and not ErrorType)
+                    AddError(context.index().Start.Line, context.index().Start.Column,
+                        $"índice aplicado a tipo '{baseType}' que no es array ni slice");
+                return ErrorType.Instance;
+            }
+
+            // primaryExpression(args) → llamada a función
+            if (context.arguments() != null)
+            {
+                var calleeType = Visit(context.primaryExpression());
+                var argExprs   = context.arguments().expressionList()?.expression()
+                                 ?? Array.Empty<MiniGoParser.ExpressionContext>();
+
+                if (calleeType is FunctionType ft)
+                {
+                    if (argExprs.Length != ft.ParamTypes.Count)
+                    {
+                        AddError(context.arguments().Start.Line,
+                                 context.arguments().Start.Column,
+                            $"se esperaban {ft.ParamTypes.Count} argumento(s), " +
+                            $"se proporcionaron {argExprs.Length}");
+                    }
+                    else
+                    {
+                        for (int i = 0; i < argExprs.Length; i++)
+                        {
+                            var argType = Visit(argExprs[i]);
+                            if (argType is not null and not ErrorType
+                                && !TypesCompatible(ft.ParamTypes[i], argType))
+                            {
+                                AddError(argExprs[i].Start.Line, argExprs[i].Start.Column,
+                                    $"argumento {i + 1}: se esperaba '{ft.ParamTypes[i]}', " +
+                                    $"se recibió '{argType}'");
+                            }
+                        }
+                    }
+                    return ft.ReturnType is PrimitiveType { Name: "void" }
+                        ? null
+                        : ft.ReturnType;
+                }
+
+                // Callee no es función reconocida → visitar argumentos igualmente
+                foreach (var arg in argExprs) Visit(arg);
+                return null;
+            }
+
+            return null;
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // OPERADORES — inferencia y verificación de tipos
+        // ═════════════════════════════════════════════════════════════════════
+
+        // Unarios: + - ! ^
+        public override MiniGoType? VisitUnaryExpr(
+            [NotNull] MiniGoParser.UnaryExprContext context)
+        {
+            var operandType = Visit(context.expression());
+            if (operandType is ErrorType) return ErrorType.Instance;
+
+            string op = context.GetChild(0).GetText();
+            return op switch
+            {
+                "!" => TypesCompatible(TBool, operandType)
+                        ? TBool
+                        : TypeError(context.Start.Line, context.Start.Column,
+                            $"operador '!' requiere bool, se recibió '{operandType}'"),
+
+                "-" or "+" => IsNumericOrRune(operandType)
+                        ? operandType
+                        : TypeError(context.Start.Line, context.Start.Column,
+                            $"operador unario '{op}' requiere int o float64, " +
+                            $"se recibió '{operandType}'"),
+
+                "^" => TypesCompatible(TInt, operandType)
+                        ? TInt
+                        : TypeError(context.Start.Line, context.Start.Column,
+                            $"operador '^' requiere int, se recibió '{operandType}'"),
+
+                _ => operandType
+            };
+        }
+
+        // Multiplicativos: * / % << >> & &^
+        public override MiniGoType? VisitMulExpr(
+            [NotNull] MiniGoParser.MulExprContext context)
+        {
+            var left  = Visit(context.expression(0));
+            var right = Visit(context.expression(1));
+            if (left is ErrorType || right is ErrorType) return ErrorType.Instance;
+            return VerifyArithmetic(
+                context.GetChild(1).GetText(), left, right,
+                context.Start.Line, context.Start.Column);
+        }
+
+        // Aditivos: + - | ^
+        public override MiniGoType? VisitAddExpr(
+            [NotNull] MiniGoParser.AddExprContext context)
+        {
+            var left  = Visit(context.expression(0));
+            var right = Visit(context.expression(1));
+            if (left is ErrorType || right is ErrorType) return ErrorType.Instance;
+            string op = context.GetChild(1).GetText();
+            return op == "+"
+                ? VerifyAdd(left, right, context.Start.Line, context.Start.Column)
+                : VerifyArithmetic(op, left, right, context.Start.Line, context.Start.Column);
+        }
+
+        // Comparación: == != < <= > >=
+        public override MiniGoType? VisitRelExpr(
+            [NotNull] MiniGoParser.RelExprContext context)
+        {
+            var left  = Visit(context.expression(0));
+            var right = Visit(context.expression(1));
+            if (left is ErrorType || right is ErrorType) return TBool;
+
+            string op = context.GetChild(1).GetText();
+            if (op is "==" or "!=")
+            {
+                if (!TypesCompatible(left!, right))
+                    AddError(context.Start.Line, context.Start.Column,
+                        $"operador '{op}' requiere operandos del mismo tipo " +
+                        $"('{left}' vs '{right}')");
+                return TBool;
+            }
+            // < <= > >=
+            if (!IsNumericOrRune(left) || !IsNumericOrRune(right))
+                AddError(context.Start.Line, context.Start.Column,
+                    $"operador '{op}' requiere int, float64 o rune " +
+                    $"(se recibió '{left}' y '{right}')");
+            return TBool;
+        }
+
+        // AND lógico: &&
+        public override MiniGoType? VisitAndExpr(
+            [NotNull] MiniGoParser.AndExprContext context)
+        {
+            var left  = Visit(context.expression(0));
+            var right = Visit(context.expression(1));
+            if (left is ErrorType || right is ErrorType) return TBool;
+            if (!TypesCompatible(TBool, left) || !TypesCompatible(TBool, right))
+                AddError(context.Start.Line, context.Start.Column,
+                    $"operador '&&' requiere bool en ambos lados " +
+                    $"(se recibió '{left}' y '{right}')");
+            return TBool;
+        }
+
+        // OR lógico: ||
+        public override MiniGoType? VisitOrExpr(
+            [NotNull] MiniGoParser.OrExprContext context)
+        {
+            var left  = Visit(context.expression(0));
+            var right = Visit(context.expression(1));
+            if (left is ErrorType || right is ErrorType) return TBool;
+            if (!TypesCompatible(TBool, left) || !TypesCompatible(TBool, right))
+                AddError(context.Start.Line, context.Start.Column,
+                    $"operador '||' requiere bool en ambos lados " +
+                    $"(se recibió '{left}' y '{right}')");
+            return TBool;
+        }
 
         // ═════════════════════════════════════════════════════════════════════
         // HELPERS
@@ -372,6 +745,39 @@ namespace MiniGoCompiler
                 return pe.primaryExpression()?.operand()?.IDENTIFIER();
             return null;
         }
+
+        // Verifica operadores aritméticos (-, *, /, %, <<, >>, &, &^, |, ^)
+        private MiniGoType? VerifyArithmetic(string op, MiniGoType? left, MiniGoType? right,
+                                             int line, int col)
+        {
+            if (left is PrimitiveType lp && right is PrimitiveType rp)
+            {
+                if (lp.Name == rp.Name && IsNumericOrRune(left)) return left;
+                if ((lp.Name == "int"     && rp.Name == "float64") ||
+                    (lp.Name == "float64" && rp.Name == "int"))
+                    return TFloat;
+            }
+            return TypeError(line, col,
+                $"operador '{op}' no compatible con tipos '{left}' y '{right}'");
+        }
+
+        // + admite: int+int, float64+float64, string+string, rune+rune, int+float64
+        private MiniGoType? VerifyAdd(MiniGoType? left, MiniGoType? right, int line, int col)
+        {
+            if (left is PrimitiveType lp && right is PrimitiveType rp)
+            {
+                if (lp.Name == rp.Name && lp.Name is "int" or "float64" or "string" or "rune")
+                    return left;
+                if ((lp.Name == "int"     && rp.Name == "float64") ||
+                    (lp.Name == "float64" && rp.Name == "int"))
+                    return TFloat;
+            }
+            return TypeError(line, col,
+                $"operador '+' no compatible con tipos '{left}' y '{right}'");
+        }
+
+        private static bool IsNumericOrRune(MiniGoType? t) =>
+            t is PrimitiveType { Name: "int" or "float64" or "rune" };
 
         // Expone constantes de tipos para uso en clases derivadas o externas
         internal static PrimitiveType BoolType   => TBool;
