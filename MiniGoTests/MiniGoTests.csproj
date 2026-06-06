@@ -36,6 +36,8 @@
     <Compile Include="..\Semantics\SymbolInfo.cs" />
     <Compile Include="..\Semantics\ScopeCheckVisitor.cs" />
     <Compile Include="..\Semantics\TypeCheckVisitor.cs" />
+    <Compile Include="..\CodeGen\LLVMValue.cs" />
+    <Compile Include="..\CodeGen\CodeGenVisitor.cs" />
   </ItemGroup>
 
 </Project>
