@@ -455,6 +455,86 @@ func main() int {
 };
 ", false);
 
+// ── Fase 4 — verificación básica de IR generado ───────────────────────────
+Console.WriteLine("\n▸ Fase 4 — código LLVM IR generado");
+
+void RunCodeGenTest(string label, string source, params string[] mustContain)
+{
+    DiagnosticCollector.Instance.Clear();
+    var res = new CompilerPipeline().Run(source);
+    string ir = res.LLVMIr ?? "";
+    bool ok = res.Success && mustContain.All(s => ir.Contains(s));
+    Console.WriteLine($"\n  {(ok ? "✅ PASS" : "❌ FAIL")}  {label}");
+    if (!ok)
+    {
+        if (!res.Success) Console.WriteLine("         Compilación falló.");
+        foreach (var s in mustContain.Where(s => !ir.Contains(s)))
+            Console.WriteLine($"         IR no contiene: {s}");
+    }
+    if (ok) pass++; else fail++;
+}
+
+RunCodeGenTest("función suma genera define + ret",
+    @"package main;
+func suma(a int, b int) int { return a + b; };
+func main() int { return 0; };",
+    "define i64 @suma(i64 %p.a, i64 %p.b)",
+    "add i64",
+    "ret i64");
+
+RunCodeGenTest("factorial recursivo genera call a sí mismo",
+    @"package main;
+func factorial(n int) int {
+    if n <= 1 { return 1; };
+    return n * factorial(n - 1);
+};
+func main() int {
+    var r int = factorial(5);
+    println(r);
+    return 0;
+};",
+    "define i64 @factorial",
+    "call i64 @factorial",
+    "icmp sle i64",
+    "%lld\\0A\\00");   // formato LLVM escaped
+
+RunCodeGenTest("for con condición genera bloques for_cond/body/after",
+    @"package main;
+func main() int {
+    var x int = 0;
+    for x < 5 { x = x + 1; };
+    return 0;
+};",
+    "for_cond", "for_body", "for_after",
+    "icmp slt i64");
+
+RunCodeGenTest("if/else genera bloques then/else/merge",
+    @"package main;
+func main() int {
+    var x int = 10;
+    if x > 5 { println(x); } else { println(0); };
+    return 0;
+};",
+    "if_then", "if_else", "if_merge",
+    "icmp sgt i64");
+
+RunCodeGenTest("println emite llamada a printf",
+    @"package main;
+func main() int { println(42); return 0; };",
+    "@printf",
+    "%lld\\0A\\00");   // formato LLVM escaped
+
+RunCodeGenTest("array genera alloca [N x i64]",
+    @"package main;
+func main() int {
+    var arr [5]int;
+    arr[0] = 99;
+    return 0;
+};",
+    "alloca [5 x i64]",
+    "getelementptr [5 x i64]",
+    "store i64");
+
 // ── Resumen ────────────────────────────────────────────────────────────────
 Console.WriteLine($"\n{'═',58}");
 Console.WriteLine($"  Resultado: {pass} ✅ pass  |  {fail} ❌ fail  |  {pass+fail} total");

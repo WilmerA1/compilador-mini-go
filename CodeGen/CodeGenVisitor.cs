@@ -1200,7 +1200,8 @@ namespace MiniGoCompiler
             // ── Bloque de condición ──────────────────────────────────────────
             Lbl(lblCond); _blockTerminated = false;
 
-            if (infinite)
+            // Sin condición: bucle infinito (for{}) o for init;;post
+            if (ctx.expression() == null)
             {
                 E($"br label %{lblBody}");
             }
