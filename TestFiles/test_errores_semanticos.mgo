@@ -1,0 +1,64 @@
+// TEST ERRORES SEMÁNTICOS — demuestra TODOS los errores de tipo que detecta el compilador
+// Este archivo NO compila correctamente — es para ver los diagnósticos semánticos.
+//
+// ERRORES ESPERADOS:
+//  [SEMANTIC] L19  — operador '+' no compatible (int + string)
+//  [SEMANTIC] L22  — condición del 'if' debe ser bool (recibió int)
+//  [SEMANTIC] L27  — condición del 'for' debe ser bool (recibió int)
+//  [SEMANTIC] L32  — tipo de retorno incorrecto (string en función int)
+//  [SEMANTIC] L37  — argumento 2 tipo incorrecto (string en lugar de int)
+//  [SEMANTIC] L41  — aridad incorrecta (3 args en función de 2)
+//  [SEMANTIC] L45  — no se puede asignar string a int
+//  [SEMANTIC] L49  — asignación compuesta tipos incompatibles
+//  [SEMANTIC] L53  — operador '!' requiere bool (recibió int)
+//  [SEMANTIC] L57  — operador '&&' requiere bool en ambos lados
+
+package main;
+
+func helper(a int, b int) int { return a + b; };
+func retornaVoid() { println(0); };
+
+func main() int {
+
+    // Error 1: operador '+' incompatible (int + string)
+    var x int = 10;
+    var s string = "hola";
+    var mal1 int = x + s;
+
+    // Error 2: condición if no es bool
+    if x {
+        println(x);
+    };
+
+    // Error 3: condición for no es bool
+    for x {
+        break;
+    };
+
+    // Error 4: return tipo incorrecto
+    // (ver función errorRetorno más abajo)
+
+    // Error 5: argumento tipo incorrecto
+    helper(x, s);
+
+    // Error 6: aridad incorrecta
+    helper(1, 2, 3);
+
+    // Error 7: asignación tipo incorrecto
+    var y int = s;
+
+    // Error 8: asignación compuesta tipo incorrecto
+    x += s;
+
+    // Error 9: NOT sobre int
+    var b1 bool = !x;
+
+    // Error 10: && con no-bool
+    var b2 bool = x && x;
+
+    return 0;
+};
+
+func errorRetorno() int {
+    return "texto";
+};

@@ -1,0 +1,117 @@
+// TEST MEDIANO — programa con tipos, control de flujo y structs
+// Cubre: struct, type alias, if/else, for (3 formas), switch, slices, funciones void
+
+package main;
+
+// Declaraciones de tipo
+type Celsius float64;
+type Punto struct {
+    x int;
+    y int;
+};
+
+// Variables globales de distintos tipos
+var pi      float64 = 3.14;
+var activo  bool    = true;
+var nombre  string  = "Mini-GO";
+
+// Función con retorno void
+func imprimir(valor int) {
+    println(valor);
+};
+
+// Función con múltiples parámetros
+func maximo(a int, b int) int {
+    if a > b {
+        return a;
+    };
+    return b;
+};
+
+// Función recursiva
+func factorial(n int) int {
+    if n <= 1 {
+        return 1;
+    };
+    return n * factorial(n - 1);
+};
+
+func main() int {
+    // Declaraciones de variable — las 3 formas
+    var x int = 10;
+    var y     = 20;
+    z        := 30;
+
+    // Operadores aritméticos
+    var suma   int = x + y;
+    var resta  int = y - x;
+    var mult   int = x * 2;
+    var div    int = y / x;
+    var modulo int = y % 3;
+
+    // Operadores de comparación → bool
+    var mayor   bool = x > 5;
+    var menor   bool = x < y;
+    var igual   bool = x == 10;
+    var distinto bool = x != y;
+
+    // Operadores lógicos
+    var ambos bool = mayor && menor;
+    var alguno bool = mayor || distinto;
+    var negado bool = !mayor;
+
+    // For — forma 1: infinito con break
+    for {
+        break;
+    };
+
+    // For — forma 2: condición bool
+    var contador int = 0;
+    for contador < 5 {
+        contador = contador + 1;
+    };
+
+    // For — forma 3: init ; cond ; post
+    for i := 0; i < 3; i++ {
+        imprimir(i);
+    };
+
+    // If / else if / else
+    var max int = maximo(x, y);
+    if max > 15 {
+        println(max);
+    } else if max == 15 {
+        println(0);
+    } else {
+        println(max);
+    };
+
+    // Switch
+    switch z {
+        case 30: println(z);
+        case 20: println(z);
+        default: println(0);
+    };
+
+    // Switch con init
+    switch v := maximo(x, y); v {
+        case 20: println(v);
+        default: println(v);
+    };
+
+    // Slices y operaciones built-in
+    var numeros []int;
+    numeros = append(numeros, 1);
+    numeros = append(numeros, 2);
+    var longitud int = len(numeros);
+    var capacidad int = cap(numeros);
+
+    // String concatenación
+    var saludo string = "Hola" + " " + nombre;
+
+    // Factorial
+    var f int = factorial(5);
+    println(f);
+
+    return 0;
+};

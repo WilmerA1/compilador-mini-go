@@ -1,0 +1,268 @@
+// TEST GRANDE — demostración completa de todas las capacidades de Mini-GO
+// Cubre: TODOS los operadores, tipos, declaraciones, control de flujo,
+//        funciones, structs, arrays, slices, forward references, recursión.
+
+package main;
+
+// ── TIPOS ────────────────────────────────────────────────────────────────────
+
+type Entero    int;
+type Texto     string;
+
+type Vector2D struct {
+    x float64;
+    y float64;
+};
+
+type Nodo struct {
+    valor int;
+};
+
+// ── VARIABLES GLOBALES ────────────────────────────────────────────────────────
+
+var VERSION   string  = "1.0";
+var MAX_ITER  int     = 100;
+var TOLERANCIA float64 = 0.001;
+var DEBUG     bool    = false;
+
+// ── FUNCIONES UTILITARIAS (forward reference: son llamadas antes de declararse) ──
+
+func main() int {
+    // Llamadas a funciones declaradas después (forward reference)
+    var r1 int     = sumar(10, 20);
+    var r2 bool    = esPar(r1);
+    var r3 float64 = potencia(2.0, 8);
+    var r4 int     = fibonacci(10);
+
+    // ── TODOS LOS TIPOS PRIMITIVOS ────────────────────────────────────────────
+    var entero   int     = 42;
+    var flotante float64 = 3.14159;
+    var cadena   string  = "Mini-GO";
+    var caracter rune    = 'A';
+    var booleano bool    = true;
+
+    // Literales numéricos alternativos
+    var hex  int = 0xFF;
+    var oct  int = 0o77;
+    var bin  int = 0b1010;
+    var exp  float64 = 1.5e3;
+
+    // ── TODOS LOS OPERADORES ARITMÉTICOS ─────────────────────────────────────
+    var a int = 15;
+    var b int = 4;
+
+    var op_suma  int = a + b;
+    var op_resta int = a - b;
+    var op_mult  int = a * b;
+    var op_div   int = a / b;
+    var op_mod   int = a % b;
+    var op_lsh   int = a << 2;
+    var op_rsh   int = a >> 1;
+    var op_and   int = a & b;
+    var op_or    int = a | b;
+    var op_xor   int = a ^ b;
+    var op_andnot int = a &^ b;
+
+    // Float64
+    var fa float64 = 10.5;
+    var fb float64 = 3.2;
+    var op_fadd float64 = fa + fb;
+    var op_fsub float64 = fa - fb;
+    var op_fmul float64 = fa * fb;
+    var op_fdiv float64 = fa / fb;
+
+    // Mix int + float64
+    var mix float64 = fa + 2;
+
+    // ── TODOS LOS OPERADORES UNARIOS ─────────────────────────────────────────
+    var u1 int  = -a;
+    var u2 int  = +a;
+    var u3 int  = ^a;
+    var u4 bool = !booleano;
+
+    // ── TODOS LOS OPERADORES DE COMPARACIÓN ──────────────────────────────────
+    var c_eq  bool = a == b;
+    var c_neq bool = a != b;
+    var c_lt  bool = a < b;
+    var c_lte bool = a <= b;
+    var c_gt  bool = a > b;
+    var c_gte bool = a >= b;
+
+    // Comparación de strings
+    var s1 string = "alpha";
+    var s2 string = "beta";
+    var s_eq bool = s1 == s2;
+
+    // ── OPERADORES LÓGICOS ───────────────────────────────────────────────────
+    var l_and bool = c_gt && c_gte;
+    var l_or  bool = c_lt || c_eq;
+    var l_not bool = !l_and;
+
+    // Encadenados
+    var complejo bool = (a > 0) && (b < 10) || !DEBUG;
+
+    // ── ASIGNACIONES ─────────────────────────────────────────────────────────
+    var x int = 100;
+    x  = 200;
+    x += 10;
+    x -= 5;
+    x *= 2;
+    x /= 3;
+    x %= 7;
+    x &= 0xFF;
+    x |= 0x01;
+    x ^= 0x10;
+    x <<= 1;
+    x >>= 1;
+
+    // Incremento / decremento
+    x++;
+    x--;
+
+    // ── IF / ELSE IF / ELSE ──────────────────────────────────────────────────
+    if x > 50 {
+        println(x);
+    } else if x > 25 {
+        println(x);
+    } else {
+        println(0);
+    };
+
+    // If con init statement
+    if v := sumar(x, 1); v > 100 {
+        println(v);
+    };
+
+    // ── FOR — TODAS LAS FORMAS ───────────────────────────────────────────────
+
+    // Forma 1: infinito con break/continue
+    var cuenta int = 0;
+    for {
+        if cuenta >= 3 {
+            break;
+        };
+        cuenta++;
+        continue;
+    };
+
+    // Forma 2: solo condición
+    for cuenta > 0 {
+        cuenta--;
+    };
+
+    // Forma 3: init ; cond ; post
+    for i := 0; i < MAX_ITER; i++ {
+        if i == 5 {
+            break;
+        };
+    };
+
+    // For sin condición (init ; ; post)
+    for j := 10; ; j-- {
+        if j <= 0 {
+            break;
+        };
+    };
+
+    // ── SWITCH ───────────────────────────────────────────────────────────────
+
+    // Switch con expresión
+    switch entero {
+        case 42:    println(entero);
+        case 0:     println(0);
+        default:    println(entero);
+    };
+
+    // Switch con init
+    switch w := sumar(1, 2); w {
+        case 3: println(w);
+        default: println(0);
+    };
+
+    // Switch sin expresión (evalúa true)
+    switch {
+        case entero > 0:  println(entero);
+        case entero == 0: println(0);
+        default:          println(entero);
+    };
+
+    // ── STRUCTS ──────────────────────────────────────────────────────────────
+    var v Vector2D;
+    var n Nodo;
+
+    // ── ARRAYS Y SLICES ──────────────────────────────────────────────────────
+    var arr [5]int;
+
+    var sl  []int;
+    sl = append(sl, 1);
+    sl = append(sl, 2);
+    sl = append(sl, 3);
+    var largo int     = len(sl);
+    var cap_sl int    = cap(sl);
+
+    var sl_str []string;
+    sl_str = append(sl_str, "a");
+    var largo_str int = len(sl_str);
+
+    // ── STRING ───────────────────────────────────────────────────────────────
+    var concat string = "Mini" + "-" + "GO" + " " + VERSION;
+    var largo_concat int = len(concat);
+
+    // ── LLAMADAS A FUNCIONES ─────────────────────────────────────────────────
+    imprimir_int(r1);
+    imprimir_str(concat);
+
+    var par bool    = esPar(42);
+    var fib int     = fibonacci(7);
+    var pot float64 = potencia(2.0, 10);
+    var fact int    = factorial(6);
+
+    return 0;
+};
+
+// ── DEFINICIÓN DE FUNCIONES ──────────────────────────────────────────────────
+
+func sumar(a int, b int) int {
+    return a + b;
+};
+
+func restar(a int, b int) int {
+    return a - b;
+};
+
+func esPar(n int) bool {
+    return n % 2 == 0;
+};
+
+func imprimir_int(n int) {
+    println(n);
+};
+
+func imprimir_str(s string) {
+    println(s);
+};
+
+func potencia(base float64, exp int) float64 {
+    var resultado float64 = 1.0;
+    for i := 0; i < exp; i++ {
+        resultado = resultado * base;
+    };
+    return resultado;
+};
+
+func fibonacci(n int) int {
+    if n <= 0 {
+        return 0;
+    };
+    if n == 1 {
+        return 1;
+    };
+    return fibonacci(n - 1) + fibonacci(n - 2);
+};
+
+func factorial(n int) int {
+    if n <= 1 {
+        return 1;
+    };
+    return n * factorial(n - 1);
+};
