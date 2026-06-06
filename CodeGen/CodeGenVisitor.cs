@@ -36,9 +36,10 @@ namespace MiniGoCompiler
         private readonly Dictionary<string, FuncSig> _funcSigs = new();
 
         // ── Estado de la función que se está generando ────────────────────────
-        private string _curRetType     = "void";
-        private string _breakTarget    = "";     // bloque destino de break
-        private string _continueTarget = "";     // bloque destino de continue
+        private string _curRetType       = "void";
+        private bool   _blockTerminated  = false;  // true tras emitir ret/br
+        private string _breakTarget      = "";     // bloque destino de break
+        private string _continueTarget   = "";     // bloque destino de continue
 
         public CodeGenVisitor() => _cur = _funcs;
 
@@ -247,6 +248,84 @@ namespace MiniGoCompiler
             var top = ctx.topDeclarationList();
             PreRegisterFuncs(top);            // forward references
             VisitTopDeclarationList(top);     // genera el módulo
+            return LLVMValue.Void;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  DECLARACIÓN DE FUNCIÓN
+        // ════════════════════════════════════════════════════════════════════
+
+        public override LLVMValue? VisitFuncDecl(MiniGoParser.FuncDeclContext ctx)
+        {
+            var front      = ctx.funcFrontDecl();
+            string name    = front.IDENTIFIER().GetText();
+            string retType = LLVMOfDecl(front.declType());
+
+            // Estado por función
+            _curRetType      = retType;
+            _blockTerminated = false;
+            _reg = 0;
+            _lbl = 0;
+
+            // ── Construir lista de parámetros LLVM ───────────────────────────
+            var sigParts = new List<string>();
+            var pList    = new List<(string LLVMType, string Name)>();
+
+            if (front.funcArgDecls() != null)
+            {
+                foreach (var arg in front.funcArgDecls().singleVarDeclNoExps())
+                {
+                    string pt = LLVMOfDecl(arg.declType());
+                    foreach (var id in arg.identifierList().IDENTIFIER())
+                    {
+                        string pn = id.GetText();
+                        sigParts.Add($"{pt} %p.{pn}");
+                        pList.Add((pt, pn));
+                    }
+                }
+            }
+
+            // ── Cabecera ─────────────────────────────────────────────────────
+            _cur = _funcs;
+            _cur.AppendLine($"define {retType} @{name}({string.Join(", ", sigParts)}) {{");
+            _cur.AppendLine("entry:");
+
+            PushScope();
+
+            // ── Parámetros → alloca + store (los hace mutables) ──────────────
+            foreach (var (pt, pn) in pList)
+            {
+                string r = NewReg("a");
+                E($"{r} = alloca {pt}");
+                E($"store {pt} %p.{pn}, {pt}* {r}");
+                DefVar(pn, r, pt);
+            }
+
+            // ── Cuerpo (visita las sentencias del bloque directamente) ────────
+            VisitStatementList(ctx.block().statementList());
+
+            // ── Terminador por defecto si el cuerpo no emitió return ─────────
+            if (!_blockTerminated)
+                E(retType == "void" ? "ret void" : $"ret {retType} 0");
+
+            PopScope();
+
+            _cur.AppendLine("}");
+            EBlank();
+            _blockTerminated = false;
+
+            return LLVMValue.Void;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  BLOQUE ANIDADO  { ... }
+        // ════════════════════════════════════════════════════════════════════
+
+        public override LLVMValue? VisitBlock(MiniGoParser.BlockContext ctx)
+        {
+            PushScope();
+            VisitStatementList(ctx.statementList());
+            PopScope();
             return LLVMValue.Void;
         }
     }
