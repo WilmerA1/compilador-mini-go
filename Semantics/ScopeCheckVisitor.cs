@@ -14,6 +14,11 @@ namespace MiniGoCompiler
         {
             _scopes.PushScope();
 
+            // Pre-declarar true y false como identificadores bool válidos
+            // (en Mini-GO no son keywords del lexer, son identificadores built-in)
+            _scopes.Define(new SymbolInfo("true",  new PrimitiveType("bool"), SymbolKind.Variable, 0, 0));
+            _scopes.Define(new SymbolInfo("false", new PrimitiveType("bool"), SymbolKind.Variable, 0, 0));
+
             // PRE-PASO: registrar firmas de todas las funciones top-level antes de
             // visitar sus cuerpos. Permite forward references entre funciones,
             // consistente con la semántica de Go (el orden de declaración no importa).
