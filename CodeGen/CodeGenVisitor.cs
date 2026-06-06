@@ -988,9 +988,254 @@ namespace MiniGoCompiler
         public override LLVMValue? VisitTypeDeclWrapper(MiniGoParser.TypeDeclWrapperContext ctx)
             => LLVMValue.Void;   // declaraciones de tipo no generan código IR
 
+        // wrappers de statements simples
+        public override LLVMValue? VisitSimpleStmtWrapper(MiniGoParser.SimpleStmtWrapperContext ctx)
+            => Visit(ctx.simpleStatement());
+
+        public override LLVMValue? VisitAssignStmt(MiniGoParser.AssignStmtContext ctx)
+            => Visit(ctx.assignmentStatement());
+
+        public override LLVMValue? VisitBlockStmtWrapper(MiniGoParser.BlockStmtWrapperContext ctx)
+            => Visit(ctx.block());
+
         // ════════════════════════════════════════════════════════════════════
         //  PRINT / PRINTLN
         // ════════════════════════════════════════════════════════════════════
+
+        // ════════════════════════════════════════════════════════════════════
+        //  CONTROL DE FLUJO
+        // ════════════════════════════════════════════════════════════════════
+
+        // break → salta al bloque de salida del loop actual
+        public override LLVMValue? VisitBreakStmt(MiniGoParser.BreakStmtContext ctx)
+        {
+            if (!string.IsNullOrEmpty(_breakTarget))
+            {
+                E($"br label %{_breakTarget}");
+                _blockTerminated = true;
+            }
+            return LLVMValue.Void;
+        }
+
+        // continue → salta al bloque de condición/post del loop actual
+        public override LLVMValue? VisitContinueStmt(MiniGoParser.ContinueStmtContext ctx)
+        {
+            if (!string.IsNullOrEmpty(_continueTarget))
+            {
+                E($"br label %{_continueTarget}");
+                _blockTerminated = true;
+            }
+            return LLVMValue.Void;
+        }
+
+        // ── IF / ELSE ─────────────────────────────────────────────────────────
+
+        public override LLVMValue? VisitIfStmtWrapper(MiniGoParser.IfStmtWrapperContext ctx)
+            => Visit(ctx.ifStatement());
+
+        public override LLVMValue? VisitIfStatement(MiniGoParser.IfStatementContext ctx)
+        {
+            // Init statement opcional: if v := expr; v > 0 { ... }
+            bool hasInit = ctx.simpleStatement() != null;
+            if (hasInit) { PushScope(); Visit(ctx.simpleStatement()); }
+
+            bool   hasElse = ctx.elseClause() != null;
+            string thenLbl  = NewLbl("if_then");
+            string elseLbl  = NewLbl("if_else");
+            string mergeLbl = NewLbl("if_merge");
+
+            // Condición
+            var cond = Visit(ctx.expression()) ?? new LLVMValue("1", "i1");
+            if (cond.LLVMType != "i1")
+            {
+                string tmp = NewReg(); E($"{tmp} = icmp ne {cond.LLVMType} {cond}, 0");
+                cond = new LLVMValue(tmp, "i1");
+            }
+            E($"br i1 {cond}, label %{thenLbl}, label %{(hasElse ? elseLbl : mergeLbl)}");
+            _blockTerminated = true;
+
+            // ── Bloque then ─────────────────────────────────────────────────
+            Lbl(thenLbl); _blockTerminated = false;
+            PushScope(); VisitStatementList(ctx.block().statementList()); PopScope();
+            if (!_blockTerminated) E($"br label %{mergeLbl}");
+
+            // ── Bloque else ─────────────────────────────────────────────────
+            if (hasElse)
+            {
+                Lbl(elseLbl); _blockTerminated = false;
+                var ec = ctx.elseClause();
+                if (ec.ifStatement() != null)
+                    Visit(ec.ifStatement());          // else if — recursivo
+                else
+                {
+                    PushScope(); VisitStatementList(ec.block().statementList()); PopScope();
+                }
+                if (!_blockTerminated) E($"br label %{mergeLbl}");
+            }
+
+            // ── Merge ────────────────────────────────────────────────────────
+            Lbl(mergeLbl); _blockTerminated = false;
+            if (hasInit) PopScope();
+            return LLVMValue.Void;
+        }
+
+        // ── FOR — LAS 3 FORMAS ────────────────────────────────────────────────
+
+        public override LLVMValue? VisitLoopStmtWrapper(MiniGoParser.LoopStmtWrapperContext ctx)
+            => Visit(ctx.loopStatement());
+
+        public override LLVMValue? VisitLoopStatement(MiniGoParser.LoopStatementContext ctx)
+        {
+            var simpleStmts = ctx.simpleStatement();
+            bool infinite   = simpleStmts.Length == 0 && ctx.expression() == null;
+            bool condOnly   = simpleStmts.Length == 0 && ctx.expression() != null;
+            bool threePart  = simpleStmts.Length >= 1;
+
+            string lblCond  = NewLbl("for_cond");
+            string lblBody  = NewLbl("for_body");
+            string lblPost  = NewLbl("for_post");
+            string lblAfter = NewLbl("for_after");
+
+            // Guardar targets del loop padre y establecer los nuevos
+            string savedBreak    = _breakTarget;
+            string savedContinue = _continueTarget;
+            _breakTarget    = lblAfter;
+            _continueTarget = threePart ? lblPost : lblCond;
+
+            // ── Init (form 3) ────────────────────────────────────────────────
+            if (threePart) { PushScope(); Visit(simpleStmts[0]); }
+
+            if (!_blockTerminated) E($"br label %{lblCond}");
+
+            // ── Bloque de condición ──────────────────────────────────────────
+            Lbl(lblCond); _blockTerminated = false;
+
+            if (infinite)
+            {
+                E($"br label %{lblBody}");
+            }
+            else
+            {
+                var cond = Visit(ctx.expression()) ?? new LLVMValue("1", "i1");
+                if (cond.LLVMType != "i1")
+                {
+                    string tmp = NewReg(); E($"{tmp} = icmp ne {cond.LLVMType} {cond}, 0");
+                    cond = new LLVMValue(tmp, "i1");
+                }
+                E($"br i1 {cond}, label %{lblBody}, label %{lblAfter}");
+            }
+
+            // ── Bloque body ──────────────────────────────────────────────────
+            Lbl(lblBody); _blockTerminated = false;
+            PushScope(); VisitStatementList(ctx.block().statementList()); PopScope();
+            if (!_blockTerminated) E($"br label %{(threePart ? lblPost : lblCond)}");
+
+            // ── Bloque post (form 3) ─────────────────────────────────────────
+            if (threePart)
+            {
+                Lbl(lblPost); _blockTerminated = false;
+                Visit(simpleStmts[1]);
+                if (!_blockTerminated) E($"br label %{lblCond}");
+                PopScope();  // scope del init
+            }
+
+            // ── After loop ───────────────────────────────────────────────────
+            Lbl(lblAfter); _blockTerminated = false;
+
+            _breakTarget    = savedBreak;
+            _continueTarget = savedContinue;
+            return LLVMValue.Void;
+        }
+
+        // ── SWITCH (implementación básica como cadena if-else) ─────────────────
+
+        public override LLVMValue? VisitSwitchStmtWrapper(MiniGoParser.SwitchStmtWrapperContext ctx)
+            => Visit(ctx.switchStatement());
+
+        public override LLVMValue? VisitSwitchStatement(MiniGoParser.SwitchStatementContext ctx)
+        {
+            bool hasInit = ctx.simpleStatement() != null;
+            if (hasInit) { PushScope(); Visit(ctx.simpleStatement()); }
+
+            // Evaluar expresión del switch (o usar i1 1 si no hay)
+            LLVMValue? swVal = ctx.expression() != null ? Visit(ctx.expression()) : null;
+
+            var clauses = ctx.expressionCaseClauseList().expressionCaseClause();
+            string lblAfter = NewLbl("sw_after");
+            string savedBreak = _breakTarget;
+            _breakTarget = lblAfter;
+
+            // Crear etiquetas para cada cláusula
+            var bodyLabels  = new string[clauses.Length];
+            var checkLabels = new string[clauses.Length + 1];
+            for (int i = 0; i < clauses.Length; i++) bodyLabels[i]  = NewLbl($"sw_body{i}");
+            for (int i = 0; i <= clauses.Length; i++) checkLabels[i] = NewLbl($"sw_chk{i}");
+            checkLabels[clauses.Length] = lblAfter;  // no default → va a after
+
+            // Encontrar default
+            int defaultIdx = -1;
+            for (int i = 0; i < clauses.Length; i++)
+                if (clauses[i].expressionSwitchCase() is MiniGoParser.SwitchCaseDefaultContext)
+                { defaultIdx = i; break; }
+            if (defaultIdx >= 0) checkLabels[clauses.Length] = bodyLabels[defaultIdx];
+
+            // Saltar a la primera comprobación
+            if (!_blockTerminated) E($"br label %{checkLabels[0]}");
+
+            // ── Cadena de comparaciones ────────────────────────────────────
+            for (int i = 0; i < clauses.Length; i++)
+            {
+                Lbl(checkLabels[i]); _blockTerminated = false;
+                var sw = clauses[i].expressionSwitchCase();
+
+                if (sw is MiniGoParser.SwitchCaseDefaultContext)
+                {
+                    E($"br label %{bodyLabels[i]}");
+                }
+                else if (sw is MiniGoParser.SwitchCaseExprContext caseExpr)
+                {
+                    // Comparar con cada expresión del case (OR lógico)
+                    var caseExprs = caseExpr.expressionList().expression();
+                    string matchReg = "0";
+                    for (int j = 0; j < caseExprs.Length; j++)
+                    {
+                        var cv = Visit(caseExprs[j]);
+                        if (cv == null) continue;
+                        string r = NewReg();
+                        if (swVal != null)
+                            E($"{r} = icmp eq {swVal.LLVMType} {swVal}, {cv}");
+                        else
+                            E($"{r} = icmp ne i1 {cv}, 0");  // switch sin expr → eval bool
+
+                        if (matchReg == "0") { matchReg = r; }
+                        else
+                        {
+                            string orR = NewReg();
+                            E($"{orR} = or i1 %{matchReg.TrimStart('%')}, {r}");
+                            matchReg = orR;
+                        }
+                    }
+                    E($"br i1 {matchReg}, label %{bodyLabels[i]}, label %{checkLabels[i + 1]}");
+                }
+                _blockTerminated = true;
+            }
+
+            // ── Cuerpos de las cláusulas ───────────────────────────────────
+            for (int i = 0; i < clauses.Length; i++)
+            {
+                Lbl(bodyLabels[i]); _blockTerminated = false;
+                PushScope();
+                VisitStatementList(clauses[i].statementList());
+                PopScope();
+                if (!_blockTerminated) E($"br label %{lblAfter}");
+            }
+
+            // ── After ──────────────────────────────────────────────────────
+            Lbl(lblAfter); _blockTerminated = false;
+            _breakTarget = savedBreak;
+            if (hasInit) PopScope();
+            return LLVMValue.Void;
+        }
 
         public override LLVMValue? VisitPrintlnStmt(MiniGoParser.PrintlnStmtContext ctx)
         {
