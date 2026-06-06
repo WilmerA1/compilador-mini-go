@@ -6,12 +6,20 @@ namespace MiniGoCompiler
 {
     public class ScopeCheckVisitor : MiniGoBaseVisitor<object?>
     {
-        private readonly ScopeStack _scopes = new();
+        private readonly ScopeStack      _scopes                 = new();
+        private readonly HashSet<string> _preRegisteredFunctions = new();
 
         // == Scope global ===================================
         public override object? VisitRoot([NotNull] MiniGoParser.RootContext context)
         {
             _scopes.PushScope();
+
+            // PRE-PASO: registrar firmas de todas las funciones top-level antes de
+            // visitar sus cuerpos. Permite forward references entre funciones,
+            // consistente con la semántica de Go (el orden de declaración no importa).
+            foreach (var funcDecl in context.topDeclarationList().funcDecl())
+                RegisterFuncSignature(funcDecl);
+
             VisitChildren(context);
             _scopes.PopScope();
             return null;
@@ -48,9 +56,14 @@ namespace MiniGoCompiler
                 ? ResolveType(front.declType())
                 : new PrimitiveType("void");
 
-            _scopes.Define(new SymbolInfo(
-                funcName, new FunctionType(paramTypes, retType),
-                SymbolKind.Function, funcLine, funcCol));
+            // Si la función fue pre-registrada en el pre-paso, no volver a
+            // definirla para evitar un falso error de redeclaración.
+            if (!_preRegisteredFunctions.Contains(funcName))
+            {
+                _scopes.Define(new SymbolInfo(
+                    funcName, new FunctionType(paramTypes, retType),
+                    SymbolKind.Function, funcLine, funcCol));
+            }
 
             // Scope compartido para parámetros + cuerpo
             _scopes.PushScope();
@@ -70,6 +83,27 @@ namespace MiniGoCompiler
             _scopes.PushScope();
             VisitChildren(context);
             _scopes.PopScope();
+            return null;
+        }
+
+        // == Loop statement: scope propio para variable del init ===================================
+        // En la forma: for simpleStatement ; expression? ; simpleStatement block
+        // la variable declarada en el init (ej: i := 0) no debe escapar al scope exterior,
+        // consistente con la semántica de Go.
+        public override object? VisitLoopStatement(
+            [NotNull] MiniGoParser.LoopStatementContext context)
+        {
+            bool hasInit = context.simpleStatement() is { Length: > 0 };
+            if (hasInit)
+            {
+                _scopes.PushScope();
+                VisitChildren(context);
+                _scopes.PopScope();
+            }
+            else
+            {
+                VisitChildren(context);
+            }
             return null;
         }
 
@@ -212,6 +246,35 @@ namespace MiniGoCompiler
         }
 
         // == Helpers ===================================
+
+        // Registra solo la firma de una función (nombre + parámetros + retorno)
+        // sin visitar su cuerpo. Usado en el pre-paso de VisitRoot.
+        private void RegisterFuncSignature(MiniGoParser.FuncDeclContext context)
+        {
+            var front   = context.funcFrontDecl();
+            string name = front.IDENTIFIER().GetText();
+            int line    = front.IDENTIFIER().Symbol.Line;
+            int col     = front.IDENTIFIER().Symbol.Column;
+
+            var paramTypes = new List<MiniGoType>();
+            var argDecls   = front.funcArgDecls();
+            if (argDecls != null)
+                foreach (var decl in argDecls.singleVarDeclNoExps())
+                {
+                    var type = ResolveType(decl.declType());
+                    foreach (var _ in decl.identifierList().IDENTIFIER())
+                        paramTypes.Add(type);
+                }
+
+            var retType = front.declType() != null
+                ? ResolveType(front.declType())
+                : new PrimitiveType("void");
+
+            _preRegisteredFunctions.Add(name);
+            _scopes.Define(new SymbolInfo(
+                name, new FunctionType(paramTypes, retType),
+                SymbolKind.Function, line, col));
+        }
 
         private MiniGoType ResolveType(MiniGoParser.DeclTypeContext ctx)
         {
