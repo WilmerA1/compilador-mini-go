@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- ANTLR runtime -->
+  <ItemGroup>
+    <PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
+    <PackageReference Include="Antlr4BuildTasks" Version="12.8.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Gramática ANTLR4 compartida -->
+  <ItemGroup>
+    <Antlr4 Include="..\Grammar\MiniGo.g4">
+      <Package>MiniGoCompiler</Package>
+      <Listener>false</Listener>
+      <Visitor>true</Visitor>
+    </Antlr4>
+  </ItemGroup>
+
+  <!-- Archivos fuente del compilador (sin UI) -->
+  <ItemGroup>
+    <Compile Include="..\Core\CompilerPipeline.cs" />
+    <Compile Include="..\Core\DiagnosticCollector.cs" />
+    <Compile Include="..\Core\SyntaxErrorListener.cs" />
+    <Compile Include="..\Semantics\MiniGoType.cs" />
+    <Compile Include="..\Semantics\ScopeStack.cs" />
+    <Compile Include="..\Semantics\SymbolInfo.cs" />
+    <Compile Include="..\Semantics\ScopeCheckVisitor.cs" />
+    <Compile Include="..\Semantics\TypeCheckVisitor.cs" />
+  </ItemGroup>
+
+</Project>
