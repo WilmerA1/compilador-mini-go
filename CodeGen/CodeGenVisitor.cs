@@ -246,8 +246,10 @@ namespace MiniGoCompiler
         public override LLVMValue? VisitRoot(MiniGoParser.RootContext ctx)
         {
             var top = ctx.topDeclarationList();
-            PreRegisterFuncs(top);            // forward references
-            VisitTopDeclarationList(top);     // genera el módulo
+            PreRegisterFuncs(top);   // forward references de funciones
+            PushScope();             // scope global (accesible desde todas las funciones)
+            VisitTopDeclarationList(top);
+            // No PopScope() — el scope global vive durante toda la compilación
             return LLVMValue.Void;
         }
 
@@ -660,6 +662,362 @@ namespace MiniGoCompiler
             string r = NewReg();
             E($"{r} = call {sig.RetType} @{name}({argStr})");
             return new LLVMValue(r, sig.RetType);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  HELPERS DE STATEMENTS
+        // ════════════════════════════════════════════════════════════════════
+
+        /// Valor cero LLVM para un tipo dado.
+        private static LLVMValue ZeroValue(string llvmType) => llvmType switch
+        {
+            "double" => new LLVMValue("0.0", "double"),
+            "i1"     => new LLVMValue("0",   "i1"),
+            "i32"    => new LLVMValue("0",   "i32"),
+            "i8*"    => new LLVMValue("null","i8*"),
+            _        => new LLVMValue("0",   "i64"),
+        };
+
+        /// Extrae el nombre de un identificador simple de una expresión, o null.
+        private static string? IdentName(MiniGoParser.ExpressionContext expr)
+        {
+            if (expr is MiniGoParser.PrimaryExprContext pe)
+            {
+                var pri = pe.primaryExpression();
+                if (pri?.operand()?.IDENTIFIER() != null)
+                    return pri.operand().IDENTIFIER().GetText();
+            }
+            return null;
+        }
+
+        /// Carga el valor de una expresión lvalue (por ahora: solo identificadores).
+        private LLVMValue? LoadLVal(MiniGoParser.ExpressionContext expr)
+        {
+            string? name = IdentName(expr);
+            if (name == null) return null;
+            var e = FindVar(name);
+            if (e == null) return null;
+            string r = NewReg();
+            E(e.IsGlobal
+                ? $"{r} = load {e.LLVMType}, {e.LLVMType}* @g.{name}"
+                : $"{r} = load {e.LLVMType}, {e.LLVMType}* {e.AllocaReg}");
+            return new LLVMValue(r, e.LLVMType);
+        }
+
+        /// Almacena val en la expresión lvalue (por ahora: solo identificadores).
+        private void StoreLVal(MiniGoParser.ExpressionContext expr, LLVMValue val)
+        {
+            string? name = IdentName(expr);
+            if (name == null) return;
+            var e = FindVar(name);
+            if (e == null) return;
+            val = CoerceValue(val, e.LLVMType);
+            E(e.IsGlobal
+                ? $"store {e.LLVMType} {val.Ref}, {e.LLVMType}* @g.{name}"
+                : $"store {e.LLVMType} {val.Ref}, {e.LLVMType}* {e.AllocaReg}");
+        }
+
+        /// Emite una llamada a printf con un valor tipado; agrega '\n' si newline=true.
+        private void EmitPrintfVal(LLVMValue val, bool newline)
+        {
+            string nl   = newline ? "\n" : "";
+            LLVMValue actual = val;
+            string fmt;
+
+            switch (val.LLVMType)
+            {
+                case "i64":    fmt = $"%lld{nl}"; break;
+                case "double": fmt = $"%g{nl}";   break;
+                case "i8*":    fmt = $"%s{nl}";   break;
+                case "i32":    fmt = $"%c{nl}";   break;
+                case "i1":
+                    fmt = $"%d{nl}";
+                    string ext = NewReg();
+                    E($"{ext} = zext i1 {val} to i32");
+                    actual = new LLVMValue(ext, "i32");
+                    break;
+                default: fmt = $"%lld{nl}"; break;
+            }
+
+            string gn = InternString(fmt);
+            var (_, bl) = _strTab[fmt];
+            string ptr = StrPtr(gn, bl);
+            E($"call i32 (i8*, ...) @printf(i8* noundef {ptr}, {actual.LLVMType} {actual.Ref})");
+        }
+
+        /// Emite printf con un string literal puro (sin valor dinámico).
+        private void EmitPrintfRaw(string s)
+        {
+            string gn = InternString(s);
+            var (_, bl) = _strTab[s];
+            string ptr = StrPtr(gn, bl);
+            E($"call i32 (i8*, ...) @printf(i8* noundef {ptr})");
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  DECLARACIONES DE VARIABLE
+        // ════════════════════════════════════════════════════════════════════
+
+        // variableDecl como statement  →  delega a variableDecl
+        public override LLVMValue? VisitVarDeclWrapper(MiniGoParser.VarDeclWrapperContext ctx)
+            => Visit(ctx.variableDecl());
+
+        // variableDecl en top-level (global) o dentro de función
+        public override LLVMValue? VisitVariableDecl(MiniGoParser.VariableDeclContext ctx)
+        {
+            bool isGlobal = _env.Count == 1; // solo el scope global = nivel raíz
+
+            if (isGlobal)
+            {
+                // Variables globales: emitir declaraciones LLVM con inicializador cero
+                // y registrar en el scope global para que las funciones las encuentren
+                if (ctx.singleVarDecl() != null)   EmitGlobalSingleDecl(ctx.singleVarDecl());
+                if (ctx.innerVarDecls() != null)
+                    foreach (var d in ctx.innerVarDecls().singleVarDecl())
+                        EmitGlobalSingleDecl(d);
+                return LLVMValue.Void;
+            }
+
+            return VisitChildren(ctx);
+        }
+
+        private void EmitGlobalSingleDecl(MiniGoParser.SingleVarDeclContext ctx)
+        {
+            string llvmType = "i64";
+            IReadOnlyList<Antlr4.Runtime.Tree.ITerminalNode> ids;
+
+            switch (ctx)
+            {
+                case MiniGoParser.VarDeclWithTypeAndInitContext ti:
+                    llvmType = LLVMOfDecl(ti.declType());
+                    ids = ti.identifierList().IDENTIFIER();
+                    break;
+                case MiniGoParser.VarDeclWithInitOnlyContext io:
+                    // Tipo inferido — visitamos la expresión más adelante;
+                    // para el initializer global usamos i64 como fallback
+                    ids = io.identifierList().IDENTIFIER();
+                    break;
+                case MiniGoParser.VarDeclNoInitContext ni:
+                    llvmType = LLVMOfDecl(ni.singleVarDeclNoExps().declType());
+                    ids = ni.singleVarDeclNoExps().identifierList().IDENTIFIER();
+                    break;
+                default: return;
+            }
+
+            foreach (var id in ids)
+            {
+                string name = id.GetText();
+                string zero = llvmType switch
+                {
+                    "double" => "0.0", "i1" => "0", "i32" => "0", "i8*" => "null",
+                    _ => "0"
+                };
+                G($"@g.{name} = global {llvmType} {zero}");
+                DefVar(name, $"@g.{name}", llvmType, isGlobal: true);
+            }
+        }
+
+        // var x T = expr
+        public override LLVMValue? VisitVarDeclWithTypeAndInit(MiniGoParser.VarDeclWithTypeAndInitContext ctx)
+        {
+            string lt  = LLVMOfDecl(ctx.declType());
+            var ids    = ctx.identifierList().IDENTIFIER();
+            var exprs  = ctx.expressionList().expression();
+
+            for (int i = 0; i < ids.Length; i++)
+            {
+                var val = i < exprs.Length ? Visit(exprs[i]) : null;
+                val = val != null ? CoerceValue(val, lt) : ZeroValue(lt);
+                string r = NewReg("v");
+                E($"{r} = alloca {lt}");
+                E($"store {lt} {val.Ref}, {lt}* {r}");
+                DefVar(ids[i].GetText(), r, lt);
+            }
+            return LLVMValue.Void;
+        }
+
+        // var x = expr  (tipo inferido)
+        public override LLVMValue? VisitVarDeclWithInitOnly(MiniGoParser.VarDeclWithInitOnlyContext ctx)
+        {
+            var ids   = ctx.identifierList().IDENTIFIER();
+            var exprs = ctx.expressionList().expression();
+
+            for (int i = 0; i < ids.Length; i++)
+            {
+                var val = i < exprs.Length ? Visit(exprs[i]) : null;
+                if (val == null) continue;
+                string r = NewReg("v");
+                E($"{r} = alloca {val.LLVMType}");
+                E($"store {val.LLVMType} {val.Ref}, {val.LLVMType}* {r}");
+                DefVar(ids[i].GetText(), r, val.LLVMType);
+            }
+            return LLVMValue.Void;
+        }
+
+        // var x T  (valor cero)
+        public override LLVMValue? VisitVarDeclNoInit(MiniGoParser.VarDeclNoInitContext ctx)
+            => Visit(ctx.singleVarDeclNoExps());
+
+        public override LLVMValue? VisitSingleVarDeclNoExps(MiniGoParser.SingleVarDeclNoExpsContext ctx)
+        {
+            string lt = LLVMOfDecl(ctx.declType());
+            foreach (var id in ctx.identifierList().IDENTIFIER())
+            {
+                var z = ZeroValue(lt);
+                string r = NewReg("v");
+                E($"{r} = alloca {lt}");
+                E($"store {lt} {z.Ref}, {lt}* {r}");
+                DefVar(id.GetText(), r, lt);
+            }
+            return LLVMValue.Void;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  STATEMENTS SIMPLES
+        // ════════════════════════════════════════════════════════════════════
+
+        // x := expr
+        public override LLVMValue? VisitShortVarDeclStmt(MiniGoParser.ShortVarDeclStmtContext ctx)
+        {
+            var lhsList = ctx.expressionList(0).expression();
+            var rhsList = ctx.expressionList(1).expression();
+
+            for (int i = 0; i < lhsList.Length; i++)
+            {
+                string name = lhsList[i].GetText();
+                var val = i < rhsList.Length ? Visit(rhsList[i]) : null;
+                if (val == null) continue;
+                string r = NewReg("v");
+                E($"{r} = alloca {val.LLVMType}");
+                E($"store {val.LLVMType} {val.Ref}, {val.LLVMType}* {r}");
+                DefVar(name, r, val.LLVMType);
+            }
+            return LLVMValue.Void;
+        }
+
+        // x = expr  (asignación simple)
+        public override LLVMValue? VisitAssignSimple(MiniGoParser.AssignSimpleContext ctx)
+        {
+            var lhsList = ctx.expressionList(0).expression();
+            var rhsList = ctx.expressionList(1).expression();
+            for (int i = 0; i < lhsList.Length; i++)
+            {
+                var val = i < rhsList.Length ? Visit(rhsList[i]) : null;
+                if (val != null) StoreLVal(lhsList[i], val);
+            }
+            return LLVMValue.Void;
+        }
+
+        // x += expr, x -= expr, etc.
+        public override LLVMValue? VisitAssignCompound(MiniGoParser.AssignCompoundContext ctx)
+        {
+            var cur = LoadLVal(ctx.expression(0));
+            var rhs = Visit(ctx.expression(1));
+            if (cur == null || rhs == null) return LLVMValue.Void;
+            (cur, rhs) = PromoteNumeric(cur, rhs);
+
+            string op = ctx.GetChild(1).GetText();
+            bool isFloat = cur.LLVMType == "double";
+            string r = NewReg();
+
+            string instr = (op, isFloat) switch
+            {
+                ("+=",  false) => $"add i64 {cur}, {rhs}",
+                ("-=",  false) => $"sub i64 {cur}, {rhs}",
+                ("*=",  false) => $"mul i64 {cur}, {rhs}",
+                ("/=",  false) => $"sdiv i64 {cur}, {rhs}",
+                ("%=",  false) => $"srem i64 {cur}, {rhs}",
+                ("&=",  false) => $"and i64 {cur}, {rhs}",
+                ("|=",  false) => $"or i64 {cur}, {rhs}",
+                ("^=",  false) => $"xor i64 {cur}, {rhs}",
+                ("<<=", false) => $"shl i64 {cur}, {rhs}",
+                (">>=", false) => $"ashr i64 {cur}, {rhs}",
+                ("+=",  true)  => $"fadd double {cur}, {rhs}",
+                ("-=",  true)  => $"fsub double {cur}, {rhs}",
+                ("*=",  true)  => $"fmul double {cur}, {rhs}",
+                ("/=",  true)  => $"fdiv double {cur}, {rhs}",
+                _              => $"add i64 {cur}, {rhs}",
+            };
+            E($"{r} = {instr}");
+            StoreLVal(ctx.expression(0), new LLVMValue(r, cur.LLVMType));
+            return LLVMValue.Void;
+        }
+
+        // x++, x--
+        public override LLVMValue? VisitIncDecStmt(MiniGoParser.IncDecStmtContext ctx)
+        {
+            string op = ctx.GetChild(1).GetText();
+            var cur   = LoadLVal(ctx.expression());
+            if (cur == null) return LLVMValue.Void;
+            string r = NewReg();
+            E(op == "++"
+                ? $"{r} = add {cur.LLVMType} {cur}, 1"
+                : $"{r} = sub {cur.LLVMType} {cur}, 1");
+            StoreLVal(ctx.expression(), new LLVMValue(r, cur.LLVMType));
+            return LLVMValue.Void;
+        }
+
+        // return expr?
+        public override LLVMValue? VisitReturnStmt(MiniGoParser.ReturnStmtContext ctx)
+        {
+            if (ctx.expression() != null)
+            {
+                var val = Visit(ctx.expression()) ?? ZeroValue(_curRetType);
+                val = CoerceValue(val, _curRetType);
+                E($"ret {val.LLVMType} {val.Ref}");
+            }
+            else
+            {
+                E("ret void");
+            }
+            _blockTerminated = true;
+            return LLVMValue.Void;
+        }
+
+        // expresión usada como statement (descarta el resultado)
+        public override LLVMValue? VisitExprStmt(MiniGoParser.ExprStmtContext ctx)
+        {
+            Visit(ctx.expression());
+            return LLVMValue.Void;
+        }
+
+        // tipo vacío / sin código
+        public override LLVMValue? VisitEmptyStmt(MiniGoParser.EmptyStmtContext ctx)
+            => LLVMValue.Void;
+
+        public override LLVMValue? VisitTypeDeclWrapper(MiniGoParser.TypeDeclWrapperContext ctx)
+            => LLVMValue.Void;   // declaraciones de tipo no generan código IR
+
+        // ════════════════════════════════════════════════════════════════════
+        //  PRINT / PRINTLN
+        // ════════════════════════════════════════════════════════════════════
+
+        public override LLVMValue? VisitPrintlnStmt(MiniGoParser.PrintlnStmtContext ctx)
+        {
+            var exprs = ctx.expressionList()?.expression();
+            if (exprs == null || exprs.Length == 0) { EmitPrintfRaw("\n"); return LLVMValue.Void; }
+
+            for (int i = 0; i < exprs.Length; i++)
+            {
+                if (i > 0) EmitPrintfRaw(" ");
+                var val = Visit(exprs[i]);
+                if (val != null) EmitPrintfVal(val, i == exprs.Length - 1);
+            }
+            return LLVMValue.Void;
+        }
+
+        public override LLVMValue? VisitPrintStmt(MiniGoParser.PrintStmtContext ctx)
+        {
+            var exprs = ctx.expressionList()?.expression();
+            if (exprs == null) return LLVMValue.Void;
+
+            for (int i = 0; i < exprs.Length; i++)
+            {
+                if (i > 0) EmitPrintfRaw(" ");
+                var val = Visit(exprs[i]);
+                if (val != null) EmitPrintfVal(val, false);
+            }
+            return LLVMValue.Void;
         }
     }
 }
