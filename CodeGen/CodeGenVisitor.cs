@@ -420,10 +420,11 @@ namespace MiniGoCompiler
         {
             if (ctx.operand()           != null) return Visit(ctx.operand());
             if (ctx.arguments()         != null) return EmitCall(ctx.primaryExpression(), ctx.arguments());
+            if (ctx.index()             != null) return EmitIndexLoad(ctx.primaryExpression(), ctx.index());
+            if (ctx.selector()          != null) return Visit(ctx.primaryExpression()); // struct stub
             if (ctx.appendExpression()  != null) return Visit(ctx.appendExpression());
             if (ctx.lengthExpression()  != null) return Visit(ctx.lengthExpression());
             if (ctx.capExpression()     != null) return Visit(ctx.capExpression());
-            // selector / index: soporte en commit 6
             return null;
         }
 
@@ -671,12 +672,43 @@ namespace MiniGoCompiler
         /// Valor cero LLVM para un tipo dado.
         private static LLVMValue ZeroValue(string llvmType) => llvmType switch
         {
-            "double" => new LLVMValue("0.0", "double"),
-            "i1"     => new LLVMValue("0",   "i1"),
-            "i32"    => new LLVMValue("0",   "i32"),
-            "i8*"    => new LLVMValue("null","i8*"),
-            _        => new LLVMValue("0",   "i64"),
+            "double"                           => new LLVMValue("0.0",             "double"),
+            "i1"                               => new LLVMValue("0",               "i1"),
+            "i32"                              => new LLVMValue("0",               "i32"),
+            "i8*"                              => new LLVMValue("null",            "i8*"),
+            _ when llvmType.StartsWith("[")    => new LLVMValue("zeroinitializer", llvmType),
+            _                                  => new LLVMValue("0",               "i64"),
         };
+
+        /// Extrae el tipo de elemento de un tipo array LLVM ("[N x T]" → "T").
+        private static string ElemTypeOf(string arrLLVMType)
+        {
+            int xPos = arrLLVMType.IndexOf(" x ", StringComparison.Ordinal);
+            return xPos >= 0 ? arrLLVMType[(xPos + 3)..^1] : "i64";
+        }
+
+        /// Emite getelementptr para acceder a arr[idx] y carga el elemento.
+        private LLVMValue? EmitIndexLoad(MiniGoParser.PrimaryExpressionContext arrCtx,
+                                         MiniGoParser.IndexContext idxCtx)
+        {
+            string? name = arrCtx.operand()?.IDENTIFIER()?.GetText();
+            if (name == null) return null;
+            var e = FindVar(name);
+            if (e == null || !e.LLVMType.StartsWith("[")) return null;
+
+            var idx = Visit(idxCtx.expression());
+            if (idx == null) return null;
+            if (idx.LLVMType != "i64") idx = CoerceValue(idx, "i64");
+
+            string elemType = ElemTypeOf(e.LLVMType);
+            string allocaRef = e.IsGlobal ? $"@g.{name}" : e.AllocaReg;
+
+            string gep = NewReg("gep");
+            E($"{gep} = getelementptr {e.LLVMType}, {e.LLVMType}* {allocaRef}, i64 0, i64 {idx}");
+            string r = NewReg();
+            E($"{r} = load {elemType}, {elemType}* {gep}");
+            return new LLVMValue(r, elemType);
+        }
 
         /// Extrae el nombre de un identificador simple de una expresión, o null.
         private static string? IdentName(MiniGoParser.ExpressionContext expr)
@@ -690,23 +722,63 @@ namespace MiniGoCompiler
             return null;
         }
 
-        /// Carga el valor de una expresión lvalue (por ahora: solo identificadores).
+        /// Carga el valor de una expresión lvalue (identificador o arr[i]).
         private LLVMValue? LoadLVal(MiniGoParser.ExpressionContext expr)
         {
+            // Caso arr[i]
+            if (expr is MiniGoParser.PrimaryExprContext pe)
+            {
+                var pri = pe.primaryExpression();
+                if (pri?.index() != null)
+                {
+                    string? arrName = pri.primaryExpression()?.operand()?.IDENTIFIER()?.GetText();
+                    if (arrName != null)
+                    {
+                        var gep = EmitIndexGEP(arrName, pri.index());
+                        if (gep != null)
+                        {
+                            string r = NewReg();
+                            E($"{r} = load {gep.Value.ElemType}, {gep.Value.ElemType}* {gep.Value.GepReg}");
+                            return new LLVMValue(r, gep.Value.ElemType);
+                        }
+                    }
+                }
+            }
+            // Caso identificador simple
             string? name = IdentName(expr);
             if (name == null) return null;
             var e = FindVar(name);
             if (e == null) return null;
-            string r = NewReg();
+            string reg = NewReg();
             E(e.IsGlobal
-                ? $"{r} = load {e.LLVMType}, {e.LLVMType}* @g.{name}"
-                : $"{r} = load {e.LLVMType}, {e.LLVMType}* {e.AllocaReg}");
-            return new LLVMValue(r, e.LLVMType);
+                ? $"{reg} = load {e.LLVMType}, {e.LLVMType}* @g.{name}"
+                : $"{reg} = load {e.LLVMType}, {e.LLVMType}* {e.AllocaReg}");
+            return new LLVMValue(reg, e.LLVMType);
         }
 
-        /// Almacena val en la expresión lvalue (por ahora: solo identificadores).
+        /// Almacena val en la expresión lvalue (identificador o arr[i]).
         private void StoreLVal(MiniGoParser.ExpressionContext expr, LLVMValue val)
         {
+            // Caso arr[i]
+            if (expr is MiniGoParser.PrimaryExprContext pe)
+            {
+                var pri = pe.primaryExpression();
+                if (pri?.index() != null)
+                {
+                    string? arrName = pri.primaryExpression()?.operand()?.IDENTIFIER()?.GetText();
+                    if (arrName != null)
+                    {
+                        var gep = EmitIndexGEP(arrName, pri.index());
+                        if (gep != null)
+                        {
+                            val = CoerceValue(val, gep.Value.ElemType);
+                            E($"store {gep.Value.ElemType} {val.Ref}, {gep.Value.ElemType}* {gep.Value.GepReg}");
+                            return;
+                        }
+                    }
+                }
+            }
+            // Caso identificador simple
             string? name = IdentName(expr);
             if (name == null) return;
             var e = FindVar(name);
@@ -715,6 +787,24 @@ namespace MiniGoCompiler
             E(e.IsGlobal
                 ? $"store {e.LLVMType} {val.Ref}, {e.LLVMType}* @g.{name}"
                 : $"store {e.LLVMType} {val.Ref}, {e.LLVMType}* {e.AllocaReg}");
+        }
+
+        /// Emite getelementptr para arr[i] y devuelve (gepReg, elemType).
+        private (string GepReg, string ElemType)?
+            EmitIndexGEP(string arrName, MiniGoParser.IndexContext idxCtx)
+        {
+            var e = FindVar(arrName);
+            if (e == null || !e.LLVMType.StartsWith("[")) return null;
+
+            var idx = Visit(idxCtx.expression());
+            if (idx == null) return null;
+            if (idx.LLVMType != "i64") idx = CoerceValue(idx, "i64");
+
+            string elemType  = ElemTypeOf(e.LLVMType);
+            string allocaRef = e.IsGlobal ? $"@g.{arrName}" : e.AllocaReg;
+            string gep       = NewReg("gep");
+            E($"{gep} = getelementptr {e.LLVMType}, {e.LLVMType}* {allocaRef}, i64 0, i64 {idx}");
+            return (gep, elemType);
         }
 
         /// Emite una llamada a printf con un valor tipado; agrega '\n' si newline=true.
@@ -1235,6 +1325,55 @@ namespace MiniGoCompiler
             _breakTarget = savedBreak;
             if (hasInit) PopScope();
             return LLVMValue.Void;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  BUILT-INS: len, cap, append
+        // ════════════════════════════════════════════════════════════════════
+
+        public override LLVMValue? VisitLengthExpression(MiniGoParser.LengthExpressionContext ctx)
+        {
+            // Si la expresión es un identificador de array, devolvemos su tamaño como constante
+            string? name = IdentName(ctx.expression());
+            if (name != null)
+            {
+                var e = FindVar(name);
+                if (e != null && e.LLVMType.StartsWith("["))
+                {
+                    // Extraer N de "[N x T]"
+                    int xPos = e.LLVMType.IndexOf(" x ", StringComparison.Ordinal);
+                    if (xPos > 0)
+                        return new LLVMValue(e.LLVMType[1..xPos], "i64");
+                }
+            }
+            // Para slices u otros: devolvemos 0 (stub)
+            Visit(ctx.expression());  // visitar de todas formas para side-effects
+            return new LLVMValue("0", "i64");
+        }
+
+        public override LLVMValue? VisitCapExpression(MiniGoParser.CapExpressionContext ctx)
+        {
+            // Mismo tratamiento que len
+            string? name = IdentName(ctx.expression());
+            if (name != null)
+            {
+                var e = FindVar(name);
+                if (e != null && e.LLVMType.StartsWith("["))
+                {
+                    int xPos = e.LLVMType.IndexOf(" x ", StringComparison.Ordinal);
+                    if (xPos > 0)
+                        return new LLVMValue(e.LLVMType[1..xPos], "i64");
+                }
+            }
+            Visit(ctx.expression());
+            return new LLVMValue("0", "i64");
+        }
+
+        public override LLVMValue? VisitAppendExpression(MiniGoParser.AppendExpressionContext ctx)
+        {
+            // append(slice, elem) — stub: devuelve el slice sin modificar
+            // Una implementación completa requiere malloc + memcpy
+            return Visit(ctx.expression(0));
         }
 
         public override LLVMValue? VisitPrintlnStmt(MiniGoParser.PrintlnStmtContext ctx)
