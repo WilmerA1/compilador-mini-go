@@ -90,6 +90,13 @@ namespace MiniGoCompiler
             if (DiagnosticCollector.Instance.HasSemanticErrors)
                 return new CompilationResult(false, null, null);
 
+            // FASE 3 — Verificación de tipos
+            var typeChecker = new TypeCheckVisitor();
+            typeChecker.Visit(parseTree);
+
+            if (DiagnosticCollector.Instance.HasSemanticErrors)
+                return new CompilationResult(false, null, null);
+
             return new CompilationResult(true, parseTree, parser);
         }
 
