@@ -9,7 +9,8 @@ namespace MiniGoCompiler
     public sealed record CompilationResult(
         bool    Success,
         IParseTree? ParseTree,
-        MiniGoParser? Parser
+        MiniGoParser? Parser,
+        string? LLVMIr = null        // IR de LLVM generado por la Fase 4
     )
     {
         public int ErrorCount => DiagnosticCollector.Instance.TotalCount;
@@ -97,7 +98,16 @@ namespace MiniGoCompiler
             if (DiagnosticCollector.Instance.HasSemanticErrors)
                 return new CompilationResult(false, null, null);
 
-            return new CompilationResult(true, parseTree, parser);
+            // FASE 4 — Generación de código LLVM IR
+            var codeGen = new CodeGenVisitor();
+            codeGen.Visit(parseTree);
+            string llvmIr = codeGen.GetIR();
+
+            // Escribir output.ll al directorio de trabajo actual
+            try { File.WriteAllText("output.ll", llvmIr, System.Text.Encoding.UTF8); }
+            catch { /* no crítico si el archivo no se puede escribir */ }
+
+            return new CompilationResult(true, parseTree, parser, llvmIr);
         }
 
         public CompilationResult RunFromFile(string filePath)
