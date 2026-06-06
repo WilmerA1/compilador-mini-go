@@ -328,5 +328,338 @@ namespace MiniGoCompiler
             PopScope();
             return LLVMValue.Void;
         }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  HELPERS DE EXPRESIONES
+        // ════════════════════════════════════════════════════════════════════
+
+        /// Si uno es double y el otro i64, convierte el i64 a double.
+        private (LLVMValue L, LLVMValue R) PromoteNumeric(LLVMValue l, LLVMValue r)
+        {
+            if (l.LLVMType == "double" && r.LLVMType == "i64")
+            {
+                string x = NewReg(); E($"{x} = sitofp i64 {r} to double");
+                return (l, new LLVMValue(x, "double"));
+            }
+            if (l.LLVMType == "i64" && r.LLVMType == "double")
+            {
+                string x = NewReg(); E($"{x} = sitofp i64 {l} to double");
+                return (new LLVMValue(x, "double"), r);
+            }
+            return (l, r);
+        }
+
+        /// Coerciona un valor al tipo LLVM requerido (p.ej. para argumentos de función).
+        private LLVMValue CoerceValue(LLVMValue v, string target)
+        {
+            if (v.LLVMType == target) return v;
+            string r = NewReg();
+            if (v.LLVMType == "i64"    && target == "double") { E($"{r} = sitofp i64 {v} to double");    return new LLVMValue(r, "double"); }
+            if (v.LLVMType == "double" && target == "i64")    { E($"{r} = fptosi double {v} to i64");    return new LLVMValue(r, "i64"); }
+            if (v.LLVMType == "i1"     && target == "i64")    { E($"{r} = zext i1 {v} to i64");          return new LLVMValue(r, "i64"); }
+            if (v.LLVMType == "i32"    && target == "i64")    { E($"{r} = sext i32 {v} to i64");         return new LLVMValue(r, "i64"); }
+            return v;
+        }
+
+        /// Parsea un INTLITERAL de Mini-GO (hex, octal, binario, decimal) a long.
+        private static long ParseIntLiteral(string raw)
+        {
+            if (raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return Convert.ToInt64(raw[2..], 16);
+            if (raw.StartsWith("0o", StringComparison.OrdinalIgnoreCase)) return Convert.ToInt64(raw[2..], 8);
+            if (raw.StartsWith("0b", StringComparison.OrdinalIgnoreCase)) return Convert.ToInt64(raw[2..], 2);
+            return long.Parse(raw);
+        }
+
+        /// Parsea un RUNELITERAL (e.g. 'A', '\n') a su valor entero Unicode.
+        private static int ParseRuneLiteral(string raw)
+        {
+            string inner = raw[1..^1];
+            if (inner.Length == 1) return inner[0];
+            return inner[1] switch
+            {
+                'n' => '\n', 'r' => '\r', 't' => '\t', '\\' => '\\',
+                '\'' => '\'', '"' => '"', '0' => '\0',
+                'a' => '\a', 'b' => '\b', 'f' => '\f', 'v' => '\v',
+                _ => inner[1]
+            };
+        }
+
+        /// Elimina escapes de un string interpretado de Go (sin las comillas externas).
+        private static string UnescapeGoString(string s)
+        {
+            var sb = new StringBuilder();
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (s[i] == '\\' && i + 1 < s.Length)
+                {
+                    sb.Append(s[++i] switch
+                    {
+                        'n' => "\n", 'r' => "\r", 't' => "\t", '\\' => "\\",
+                        '"' => "\"", '\'' => "'", '0' => "\0",
+                        'a' => "\a", 'b' => "\b", 'f' => "\f", 'v' => "\v",
+                        var c => c.ToString()
+                    });
+                }
+                else sb.Append(s[i]);
+            }
+            return sb.ToString();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  EXPRESIONES
+        // ════════════════════════════════════════════════════════════════════
+
+        // expression → primaryExpression  (#PrimaryExpr)
+        public override LLVMValue? VisitPrimaryExpr(MiniGoParser.PrimaryExprContext ctx)
+            => Visit(ctx.primaryExpression());
+
+        // primaryExpression (regla sin etiquetas — varios formas)
+        public override LLVMValue? VisitPrimaryExpression(MiniGoParser.PrimaryExpressionContext ctx)
+        {
+            if (ctx.operand()           != null) return Visit(ctx.operand());
+            if (ctx.arguments()         != null) return EmitCall(ctx.primaryExpression(), ctx.arguments());
+            if (ctx.appendExpression()  != null) return Visit(ctx.appendExpression());
+            if (ctx.lengthExpression()  != null) return Visit(ctx.lengthExpression());
+            if (ctx.capExpression()     != null) return Visit(ctx.capExpression());
+            // selector / index: soporte en commit 6
+            return null;
+        }
+
+        // operand: literal | IDENTIFIER | '(' expression ')'
+        public override LLVMValue? VisitOperand(MiniGoParser.OperandContext ctx)
+        {
+            if (ctx.literal() != null) return Visit(ctx.literal());
+
+            if (ctx.IDENTIFIER() != null)
+            {
+                string name = ctx.IDENTIFIER().GetText();
+                if (name == "true")  return new LLVMValue("1", "i1");
+                if (name == "false") return new LLVMValue("0", "i1");
+
+                var e = FindVar(name);
+                if (e == null) return null;
+
+                string r = NewReg();
+                E(e.IsGlobal
+                    ? $"{r} = load {e.LLVMType}, {e.LLVMType}* @g.{name}"
+                    : $"{r} = load {e.LLVMType}, {e.LLVMType}* {e.AllocaReg}");
+                return new LLVMValue(r, e.LLVMType);
+            }
+
+            if (ctx.expression() != null) return Visit(ctx.expression());
+            return null;
+        }
+
+        // Literales
+        public override LLVMValue? VisitLiteral(MiniGoParser.LiteralContext ctx)
+        {
+            if (ctx.INTLITERAL() != null)
+                return new LLVMValue(ParseIntLiteral(ctx.INTLITERAL().GetText()).ToString(), "i64");
+
+            if (ctx.FLOATLITERAL() != null)
+            {
+                double d = double.Parse(ctx.FLOATLITERAL().GetText(),
+                                        System.Globalization.CultureInfo.InvariantCulture);
+                return new LLVMValue(d.ToString("R", System.Globalization.CultureInfo.InvariantCulture), "double");
+            }
+
+            if (ctx.RUNELITERAL() != null)
+                return new LLVMValue(ParseRuneLiteral(ctx.RUNELITERAL().GetText()).ToString(), "i32");
+
+            if (ctx.INTERPRETEDSTRINGLITERAL() != null)
+            {
+                string raw     = ctx.INTERPRETEDSTRINGLITERAL().GetText();
+                string content = UnescapeGoString(raw[1..^1]);
+                string gName   = InternString(content);
+                var (_, bLen)  = _strTab[content];
+                return new LLVMValue(StrPtr(gName, bLen), "i8*");
+            }
+
+            if (ctx.RAWSTRINGLITERAL() != null)
+            {
+                string raw     = ctx.RAWSTRINGLITERAL().GetText();
+                string content = raw[1..^1];
+                string gName   = InternString(content);
+                var (_, bLen)  = _strTab[content];
+                return new LLVMValue(StrPtr(gName, bLen), "i8*");
+            }
+
+            return null;
+        }
+
+        // UnaryExpr: ('+' | '-' | '!' | '^') expression
+        public override LLVMValue? VisitUnaryExpr(MiniGoParser.UnaryExprContext ctx)
+        {
+            string op  = ctx.GetChild(0).GetText();
+            var    val = Visit(ctx.expression());
+            if (val == null) return null;
+            if (op == "+") return val;
+
+            string r = NewReg();
+            switch (op)
+            {
+                case "-":
+                    E(val.LLVMType == "double"
+                        ? $"{r} = fneg double {val}"
+                        : $"{r} = sub {val.LLVMType} 0, {val}");
+                    break;
+                case "!": E($"{r} = xor i1 {val}, 1"); break;
+                case "^": E($"{r} = xor {val.LLVMType} {val}, -1"); break;
+            }
+            return new LLVMValue(r, val.LLVMType);
+        }
+
+        // MulExpr: expression ('*'|'/'|'%'|'<<'|'>>'|'&'|'&^') expression
+        public override LLVMValue? VisitMulExpr(MiniGoParser.MulExprContext ctx)
+        {
+            var lhs = Visit(ctx.expression(0));
+            var rhs = Visit(ctx.expression(1));
+            if (lhs == null || rhs == null) return null;
+            (lhs, rhs) = PromoteNumeric(lhs, rhs);
+
+            string op = ctx.GetChild(1).GetText();
+            bool isFloat = lhs.LLVMType == "double";
+            string r = NewReg();
+
+            if (op == "&^")
+            {
+                string nr = NewReg();
+                E($"{nr} = xor {lhs.LLVMType} {rhs}, -1");
+                E($"{r} = and {lhs.LLVMType} {lhs}, {nr}");
+            }
+            else
+            {
+                string instr = (op, isFloat) switch
+                {
+                    ("*",  false) => $"mul i64 {lhs}, {rhs}",
+                    ("/",  false) => $"sdiv i64 {lhs}, {rhs}",
+                    ("%",  false) => $"srem i64 {lhs}, {rhs}",
+                    ("<<", false) => $"shl i64 {lhs}, {rhs}",
+                    (">>", false) => $"ashr i64 {lhs}, {rhs}",
+                    ("&",  false) => $"and i64 {lhs}, {rhs}",
+                    ("|",  false) => $"or i64 {lhs}, {rhs}",
+                    ("^",  false) => $"xor i64 {lhs}, {rhs}",
+                    ("*",  true)  => $"fmul double {lhs}, {rhs}",
+                    ("/",  true)  => $"fdiv double {lhs}, {rhs}",
+                    _             => $"mul i64 {lhs}, {rhs}",
+                };
+                E($"{r} = {instr}");
+            }
+            return new LLVMValue(r, lhs.LLVMType);
+        }
+
+        // AddExpr: expression ('+'|'-'|'|'|'^') expression
+        public override LLVMValue? VisitAddExpr(MiniGoParser.AddExprContext ctx)
+        {
+            var lhs = Visit(ctx.expression(0));
+            var rhs = Visit(ctx.expression(1));
+            if (lhs == null || rhs == null) return null;
+            (lhs, rhs) = PromoteNumeric(lhs, rhs);
+
+            string op = ctx.GetChild(1).GetText();
+            bool isFloat = lhs.LLVMType == "double";
+
+            // Concatenación de strings: retorna lhs (simplificación — IR no tiene strcat nativo)
+            if (lhs.LLVMType == "i8*" && op == "+") return lhs;
+
+            string r = NewReg();
+            string instr = (op, isFloat) switch
+            {
+                ("+", false) => $"add i64 {lhs}, {rhs}",
+                ("-", false) => $"sub i64 {lhs}, {rhs}",
+                ("|", false) => $"or i64 {lhs}, {rhs}",
+                ("^", false) => $"xor i64 {lhs}, {rhs}",
+                ("+", true)  => $"fadd double {lhs}, {rhs}",
+                ("-", true)  => $"fsub double {lhs}, {rhs}",
+                _            => $"add i64 {lhs}, {rhs}",
+            };
+            E($"{r} = {instr}");
+            return new LLVMValue(r, lhs.LLVMType);
+        }
+
+        // RelExpr: expression ('=='|'!='|'<'|'<='|'>'|'>=') expression  → i1
+        public override LLVMValue? VisitRelExpr(MiniGoParser.RelExprContext ctx)
+        {
+            var lhs = Visit(ctx.expression(0));
+            var rhs = Visit(ctx.expression(1));
+            if (lhs == null || rhs == null) return null;
+            (lhs, rhs) = PromoteNumeric(lhs, rhs);
+
+            string op = ctx.GetChild(1).GetText();
+            bool isFloat = lhs.LLVMType == "double";
+            string r = NewReg();
+
+            string pred = (op, isFloat) switch
+            {
+                ("==", false) => "icmp eq",  ("==", true) => "fcmp oeq",
+                ("!=", false) => "icmp ne",  ("!=", true) => "fcmp one",
+                ("<",  false) => "icmp slt", ("<",  true) => "fcmp olt",
+                ("<=", false) => "icmp sle", ("<=", true) => "fcmp ole",
+                (">",  false) => "icmp sgt", (">",  true) => "fcmp ogt",
+                (">=", false) => "icmp sge", (">=", true) => "fcmp oge",
+                _             => "icmp eq",
+            };
+            E($"{r} = {pred} {lhs.LLVMType} {lhs}, {rhs}");
+            return new LLVMValue(r, "i1");
+        }
+
+        // AndExpr: expression '&&' expression
+        public override LLVMValue? VisitAndExpr(MiniGoParser.AndExprContext ctx)
+        {
+            var lhs = Visit(ctx.expression(0));
+            var rhs = Visit(ctx.expression(1));
+            if (lhs == null || rhs == null) return null;
+            string r = NewReg();
+            E($"{r} = and i1 {lhs}, {rhs}");
+            return new LLVMValue(r, "i1");
+        }
+
+        // OrExpr: expression '||' expression
+        public override LLVMValue? VisitOrExpr(MiniGoParser.OrExprContext ctx)
+        {
+            var lhs = Visit(ctx.expression(0));
+            var rhs = Visit(ctx.expression(1));
+            if (lhs == null || rhs == null) return null;
+            string r = NewReg();
+            E($"{r} = or i1 {lhs}, {rhs}");
+            return new LLVMValue(r, "i1");
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  LLAMADAS A FUNCIÓN (desde expresión)
+        // ════════════════════════════════════════════════════════════════════
+
+        private LLVMValue? EmitCall(MiniGoParser.PrimaryExpressionContext callee,
+                                    MiniGoParser.ArgumentsContext argsCtx)
+        {
+            string name = callee.operand()?.IDENTIFIER()?.GetText() ?? "";
+            if (string.IsNullOrEmpty(name)) return null;
+            if (!_funcSigs.TryGetValue(name, out var sig)) return null;
+
+            var argParts = new List<string>();
+            if (argsCtx.expressionList() != null)
+            {
+                int i = 0;
+                foreach (var expr in argsCtx.expressionList().expression())
+                {
+                    var v = Visit(expr);
+                    if (v == null) { i++; continue; }
+                    if (i < sig.ParamTypes.Count)
+                        v = CoerceValue(v, sig.ParamTypes[i]);
+                    argParts.Add($"{v.LLVMType} {v.Ref}");
+                    i++;
+                }
+            }
+
+            string argStr = string.Join(", ", argParts);
+            if (sig.RetType == "void")
+            {
+                E($"call void @{name}({argStr})");
+                return LLVMValue.Void;
+            }
+            string r = NewReg();
+            E($"{r} = call {sig.RetType} @{name}({argStr})");
+            return new LLVMValue(r, sig.RetType);
+        }
     }
 }
