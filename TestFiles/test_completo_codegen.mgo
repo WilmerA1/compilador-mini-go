@@ -1,0 +1,226 @@
+// TEST COMPLETO CODEGEN
+// Cubre: aritmetica, bits, logica, comparacion, var (3 formas), asignacion compuesta,
+//        inc/dec, if/else/init, for (4 formas), switch/init, break, continue,
+//        funciones recursivas, arrays, len, variables globales, println
+
+package main;
+
+// ── Variables globales ────────────────────────────────────────────────────────
+var BASE int = 10;
+var MAX  int = 100;
+
+// ── Funciones ─────────────────────────────────────────────────────────────────
+
+func factorial(n int) int {
+    if n <= 1 { return 1; };
+    return n * factorial(n - 1);
+};
+
+func fibonacci(n int) int {
+    if n <= 1 { return n; };
+    var a int = 0;
+    var b int = 1;
+    for i := 2; i <= n; i++ {
+        var tmp int = a + b;
+        a = b;
+        b = tmp;
+    };
+    return b;
+};
+
+func max2(a int, b int) int {
+    if a > b { return a; };
+    return b;
+};
+
+func min2(a int, b int) int {
+    if a < b { return a; };
+    return b;
+};
+
+func abs(n int) int {
+    if n < 0 { return -n; };
+    return n;
+};
+
+func potencia(base int, exp int) int {
+    var r int = 1;
+    for i := 0; i < exp; i++ {
+        r = r * base;
+    };
+    return r;
+};
+
+func esPar(n int) bool {
+    return n % 2 == 0;
+};
+
+func imprimir(n int) {
+    println(n);
+};
+
+// ── Main ───────────────────────────────────────────────────────────────────────
+func main() int {
+
+    // ── Aritmetica basica ─────────────────────────────────────────────────────
+    var a int = 10;
+    var b int = 3;
+    println(a + b);   // 13
+    println(a - b);   // 7
+    println(a * b);   // 30
+    println(a / b);   // 3
+    println(a % b);   // 1
+
+    // ── Operadores de bits ────────────────────────────────────────────────────
+    println(12 & 10);  // 8
+    println(12 | 10);  // 14
+    println(12 ^ 10);  // 6
+    println(1 << 3);   // 8
+    println(16 >> 2);  // 4
+
+    // ── Declaracion de variables (3 formas) ───────────────────────────────────
+    var x int = 50;
+    var y     = 20;
+    z        := 7;
+    println(x);  // 50
+    println(y);  // 20
+    println(z);  // 7
+
+    // ── Asignacion compuesta ──────────────────────────────────────────────────
+    x += 10;   // 60
+    x -= 5;    // 55
+    x *= 2;    // 110
+    x /= 11;   // 10
+    x %= 7;    // 3
+    println(x);  // 3
+
+    // ── Inc / Dec ─────────────────────────────────────────────────────────────
+    x++;
+    println(x);  // 4
+    x--;
+    println(x);  // 3
+
+    // ── Logica booleana ───────────────────────────────────────────────────────
+    var t bool = true;
+    var f bool = false;
+    if t && !f { println(1); } else { println(0); };  // 1
+    if f || t  { println(1); } else { println(0); };  // 1
+    if !t      { println(1); } else { println(0); };  // 0
+
+    // ── If con init ───────────────────────────────────────────────────────────
+    if v := max2(4, 9); v > 5 {
+        println(v);   // 9
+    };
+
+    // ── If / else ─────────────────────────────────────────────────────────────
+    var score int = 75;
+    if score >= 90 {
+        println(4);
+    } else {
+        if score >= 70 {
+            println(3);  // 3
+        } else {
+            println(2);
+        };
+    };
+
+    // ── Funciones recursivas ──────────────────────────────────────────────────
+    println(factorial(5));    // 120
+    println(factorial(10));   // 3628800
+    println(fibonacci(10));   // 55
+    println(abs(-42));        // 42
+    println(potencia(2, 8));  // 256
+    println(max2(17, 42));    // 42
+    println(min2(17, 42));    // 17
+
+    // ── Funcion void ─────────────────────────────────────────────────────────
+    imprimir(999);  // 999
+
+    // ── Funcion bool ─────────────────────────────────────────────────────────
+    if esPar(8) { println(1); } else { println(0); };  // 1
+    if esPar(7) { println(1); } else { println(0); };  // 0
+
+    // ── Variables globales ────────────────────────────────────────────────────
+    println(BASE * 7);    // 70
+    println(MAX - BASE);  // 90
+
+    // ── For: init;cond;post ───────────────────────────────────────────────────
+    var suma int = 0;
+    for i := 1; i <= 10; i++ {
+        suma += i;
+    };
+    println(suma);  // 55
+
+    // ── For: solo condicion ───────────────────────────────────────────────────
+    var j int = 10;
+    for j > 0 {
+        j--;
+    };
+    println(j);  // 0
+
+    // ── For: infinito con break ───────────────────────────────────────────────
+    var cnt int = 0;
+    for {
+        cnt++;
+        if cnt >= 5 { break; };
+    };
+    println(cnt);  // 5
+
+    // ── For: sin condicion (;;) ───────────────────────────────────────────────
+    var acc int = 0;
+    for k := 0; ; k++ {
+        acc += k;
+        if k >= 4 { break; };
+    };
+    println(acc);  // 10
+
+    // ── Continue ─────────────────────────────────────────────────────────────
+    var pares int = 0;
+    for i := 0; i < 10; i++ {
+        if i % 2 != 0 { continue; };
+        pares += i;
+    };
+    println(pares);  // 20
+
+    // ── Switch ───────────────────────────────────────────────────────────────
+    var dia int = 3;
+    switch dia {
+        case 1: println(10);
+        case 2: println(20);
+        case 3: println(30);
+        default: println(99);
+    };  // 30
+
+    // ── Switch con init ───────────────────────────────────────────────────────
+    switch m := max2(5, 8); m {
+        case 8: println(8);
+        default: println(0);
+    };  // 8
+
+    // ── Arrays ───────────────────────────────────────────────────────────────
+    var arr [5]int;
+    arr[0] = 2;
+    arr[1] = 4;
+    arr[2] = 6;
+    arr[3] = 8;
+    arr[4] = 10;
+
+    var totalArr int = 0;
+    for i := 0; i < len(arr); i++ {
+        totalArr += arr[i];
+    };
+    println(totalArr);   // 30
+    println(len(arr));   // 5
+    println(arr[2]);     // 6
+
+    // ── Expresiones compuestas ────────────────────────────────────────────────
+    var expr int = (factorial(3) + fibonacci(5)) * 2;
+    // factorial(3)=6, fibonacci(5)=5, (6+5)*2=22
+    println(expr);  // 22
+
+    // ── Unario negativo ───────────────────────────────────────────────────────
+    var negativo int = -potencia(3, 3);
+    println(negativo);  // -27
+
+    return 0;
+};

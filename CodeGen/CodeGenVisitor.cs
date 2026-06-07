@@ -463,7 +463,7 @@ namespace MiniGoCompiler
             {
                 double d = double.Parse(ctx.FLOATLITERAL().GetText(),
                                         System.Globalization.CultureInfo.InvariantCulture);
-                return new LLVMValue(d.ToString("R", System.Globalization.CultureInfo.InvariantCulture), "double");
+                return new LLVMValue(LLVMDoubleStr(d), "double");
             }
 
             if (ctx.RUNELITERAL() != null)
@@ -522,29 +522,30 @@ namespace MiniGoCompiler
 
             string op = ctx.GetChild(1).GetText();
             bool isFloat = lhs.LLVMType == "double";
+            string it   = lhs.LLVMType; // tipo entero real (i64 o i32 para rune)
             string r = NewReg();
 
             if (op == "&^")
             {
                 string nr = NewReg();
-                E($"{nr} = xor {lhs.LLVMType} {rhs}, -1");
-                E($"{r} = and {lhs.LLVMType} {lhs}, {nr}");
+                E($"{nr} = xor {it} {rhs}, -1");
+                E($"{r} = and {it} {lhs}, {nr}");
             }
             else
             {
                 string instr = (op, isFloat) switch
                 {
-                    ("*",  false) => $"mul i64 {lhs}, {rhs}",
-                    ("/",  false) => $"sdiv i64 {lhs}, {rhs}",
-                    ("%",  false) => $"srem i64 {lhs}, {rhs}",
-                    ("<<", false) => $"shl i64 {lhs}, {rhs}",
-                    (">>", false) => $"ashr i64 {lhs}, {rhs}",
-                    ("&",  false) => $"and i64 {lhs}, {rhs}",
-                    ("|",  false) => $"or i64 {lhs}, {rhs}",
-                    ("^",  false) => $"xor i64 {lhs}, {rhs}",
+                    ("*",  false) => $"mul {it} {lhs}, {rhs}",
+                    ("/",  false) => $"sdiv {it} {lhs}, {rhs}",
+                    ("%",  false) => $"srem {it} {lhs}, {rhs}",
+                    ("<<", false) => $"shl {it} {lhs}, {rhs}",
+                    (">>", false) => $"ashr {it} {lhs}, {rhs}",
+                    ("&",  false) => $"and {it} {lhs}, {rhs}",
+                    ("|",  false) => $"or {it} {lhs}, {rhs}",
+                    ("^",  false) => $"xor {it} {lhs}, {rhs}",
                     ("*",  true)  => $"fmul double {lhs}, {rhs}",
                     ("/",  true)  => $"fdiv double {lhs}, {rhs}",
-                    _             => $"mul i64 {lhs}, {rhs}",
+                    _             => $"mul {it} {lhs}, {rhs}",
                 };
                 E($"{r} = {instr}");
             }
@@ -561,6 +562,7 @@ namespace MiniGoCompiler
 
             string op = ctx.GetChild(1).GetText();
             bool isFloat = lhs.LLVMType == "double";
+            string it    = lhs.LLVMType;
 
             // Concatenación de strings: retorna lhs (simplificación — IR no tiene strcat nativo)
             if (lhs.LLVMType == "i8*" && op == "+") return lhs;
@@ -568,13 +570,13 @@ namespace MiniGoCompiler
             string r = NewReg();
             string instr = (op, isFloat) switch
             {
-                ("+", false) => $"add i64 {lhs}, {rhs}",
-                ("-", false) => $"sub i64 {lhs}, {rhs}",
-                ("|", false) => $"or i64 {lhs}, {rhs}",
-                ("^", false) => $"xor i64 {lhs}, {rhs}",
+                ("+", false) => $"add {it} {lhs}, {rhs}",
+                ("-", false) => $"sub {it} {lhs}, {rhs}",
+                ("|", false) => $"or {it} {lhs}, {rhs}",
+                ("^", false) => $"xor {it} {lhs}, {rhs}",
                 ("+", true)  => $"fadd double {lhs}, {rhs}",
                 ("-", true)  => $"fsub double {lhs}, {rhs}",
-                _            => $"add i64 {lhs}, {rhs}",
+                _            => $"add {it} {lhs}, {rhs}",
             };
             E($"{r} = {instr}");
             return new LLVMValue(r, lhs.LLVMType);
@@ -874,37 +876,78 @@ namespace MiniGoCompiler
         private void EmitGlobalSingleDecl(MiniGoParser.SingleVarDeclContext ctx)
         {
             string llvmType = "i64";
-            IReadOnlyList<Antlr4.Runtime.Tree.ITerminalNode> ids;
+            Antlr4.Runtime.Tree.ITerminalNode[] ids;
+            MiniGoParser.ExpressionContext[]? initExprs = null;
 
             switch (ctx)
             {
                 case MiniGoParser.VarDeclWithTypeAndInitContext ti:
-                    llvmType = LLVMOfDecl(ti.declType());
-                    ids = ti.identifierList().IDENTIFIER();
+                    llvmType  = LLVMOfDecl(ti.declType());
+                    ids       = ti.identifierList().IDENTIFIER();
+                    initExprs = ti.expressionList().expression();
                     break;
                 case MiniGoParser.VarDeclWithInitOnlyContext io:
-                    // Tipo inferido — visitamos la expresión más adelante;
-                    // para el initializer global usamos i64 como fallback
-                    ids = io.identifierList().IDENTIFIER();
+                    ids       = io.identifierList().IDENTIFIER();
+                    initExprs = io.expressionList().expression();
                     break;
                 case MiniGoParser.VarDeclNoInitContext ni:
                     llvmType = LLVMOfDecl(ni.singleVarDeclNoExps().declType());
-                    ids = ni.singleVarDeclNoExps().identifierList().IDENTIFIER();
+                    ids      = ni.singleVarDeclNoExps().identifierList().IDENTIFIER();
                     break;
                 default: return;
             }
 
-            foreach (var id in ids)
+            string ZeroFor(string lt) => lt switch
             {
-                string name = id.GetText();
-                string zero = llvmType switch
-                {
-                    "double" => "0.0", "i1" => "0", "i32" => "0", "i8*" => "null",
-                    _ => "0"
-                };
-                G($"@g.{name} = global {llvmType} {zero}");
+                "double" => "0.0", "i1" => "0", "i32" => "0", "i8*" => "null", _ => "0"
+            };
+
+            for (int i = 0; i < ids.Length; i++)
+            {
+                string name    = ids[i].GetText();
+                string initVal = ZeroFor(llvmType);
+
+                if (initExprs != null && i < initExprs.Length)
+                    initVal = TryConstantLLVM(initExprs[i], llvmType) ?? ZeroFor(llvmType);
+
+                G($"@g.{name} = global {llvmType} {initVal}");
                 DefVar(name, $"@g.{name}", llvmType, isGlobal: true);
             }
+        }
+
+        // Extrae el valor constante LLVM para literales simples en scope global.
+        // Retorna null si la expresión es compleja (función, aritmética, etc.).
+        private static string? TryConstantLLVM(MiniGoParser.ExpressionContext expr, string llvmType)
+        {
+            string text = expr.GetText().Trim();
+            switch (llvmType)
+            {
+                case "i64":
+                    if (long.TryParse(text, out long iv)) return iv.ToString();
+                    break;
+                case "double":
+                    if (double.TryParse(text,
+                            System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out double dv))
+                        return LLVMDoubleStr(dv);
+                    break;
+                case "i1":
+                    if (text == "true")  return "1";
+                    if (text == "false") return "0";
+                    break;
+            }
+            return null;
+        }
+
+        // Formatea un double para LLVM IR — siempre incluye punto decimal o exponente.
+        private static string LLVMDoubleStr(double d)
+        {
+            string s = d.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            if (!s.Contains('.') && !s.Contains('e') && !s.Contains('E')
+                && !s.Contains('n') && !s.Contains('N'))
+                s += ".0";
+            return s;
         }
 
         // var x T = expr
