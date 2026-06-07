@@ -112,6 +112,31 @@ namespace MiniGoCompiler
             return null;
         }
 
+        // == If statement: scope propio para variable del init ======================================
+        // En la forma: if simpleStatement; expression block
+        // la variable declarada en el init (ej: if v := f(); v > 0) no debe escapar al scope
+        // exterior, consistente con la semántica de Go.
+        public override object? VisitIfStmtWrapper(
+            [NotNull] MiniGoParser.IfStmtWrapperContext context)
+            => Visit(context.ifStatement());
+
+        public override object? VisitIfStatement(
+            [NotNull] MiniGoParser.IfStatementContext context)
+        {
+            bool hasInit = context.simpleStatement() != null;
+            if (hasInit)
+            {
+                _scopes.PushScope();
+                VisitChildren(context);
+                _scopes.PopScope();
+            }
+            else
+            {
+                VisitChildren(context);
+            }
+            return null;
+        }
+
         // == Declaraciones de variable ===================================
         public override object? VisitVarDeclNoInit(
             [NotNull] MiniGoParser.VarDeclNoInitContext context)

@@ -2,6 +2,38 @@ using System;
 using System.IO;
 using MiniGoCompiler;
 
+// ── Modo archivo: dotnet MiniGoTests.dll <archivo.mgo> ───────────────────────
+if (args.Length > 0)
+{
+    string path = args[0];
+    if (!File.Exists(path)) { Console.Error.WriteLine($"Archivo no encontrado: {path}"); return; }
+
+    Console.WriteLine($"Compilando: {path}");
+    DiagnosticCollector.Instance.Clear();
+    var result = new CompilerPipeline().RunFromFile(path);
+
+    var diags = DiagnosticCollector.Instance.Diagnostics;
+    foreach (var d in diags)
+        Console.WriteLine($"  [{d.Phase,-10}] L{d.Line}:{d.Column} - {d.Message}");
+
+    if (result.Success)
+    {
+        string outPath = Path.ChangeExtension(path, ".ll");
+        File.WriteAllText(outPath, result.LLVMIr ?? "", new System.Text.UTF8Encoding(false));
+        Console.WriteLine($"[OK] IR generado -> {outPath}");
+        Console.WriteLine();
+        Console.WriteLine("Para compilar a ejecutable:");
+        Console.WriteLine($"  clang \"{outPath}\" -o programa.exe");
+        Console.WriteLine("  .\\programa.exe");
+    }
+    else
+    {
+        Console.WriteLine("[ERROR] Compilacion fallida - ver errores arriba.");
+    }
+    return;
+}
+
+// ── Modo suite de tests (sin argumentos) ─────────────────────────────────────
 int pass = 0, fail = 0;
 
 void RunTest(string label, string source, bool expectSuccess)
@@ -11,23 +43,23 @@ void RunTest(string label, string source, bool expectSuccess)
     var diags  = DiagnosticCollector.Instance.Diagnostics;
     bool ok    = result.Success == expectSuccess;
 
-    Console.WriteLine($"\n  {(ok ? "✅ PASS" : "❌ FAIL")}  {label}");
+    Console.WriteLine($"\n  {(ok ? "[PASS]" : "[FAIL]")}  {label}");
 
     if (diags.Count > 0)
         foreach (var d in diags)
-            Console.WriteLine($"         [{d.Phase,-10}] L{d.Line}:{d.Column} — {d.Message}");
+            Console.WriteLine($"         [{d.Phase,-10}] L{d.Line}:{d.Column} - {d.Message}");
     else
-        Console.WriteLine("         Compilación exitosa — 0 errores.");
+        Console.WriteLine("         Compilacion exitosa - 0 errores.");
 
     if (ok) pass++; else fail++;
 }
 
-Console.WriteLine("══════════════════════════════════════════════════════════");
-Console.WriteLine("  MINI-GO  —  Test Suite (Fases 1-3)");
-Console.WriteLine("══════════════════════════════════════════════════════════");
+Console.WriteLine("==========================================================");
+Console.WriteLine("  MINI-GO  -  Test Suite (Fases 1-4)");
+Console.WriteLine("==========================================================");
 
 // ── FASE 1 / 2: casos existentes ──────────────────────────────────────────
-Console.WriteLine("\n▸ Fase 1 & 2 — scope");
+Console.WriteLine("\n-- Fase 1 & 2 - scope");
 
 RunTest("válido simple (función vacía)", @"
 package main;
@@ -69,7 +101,7 @@ func main() int {
 ", true);
 
 // ── FASE 3: type checking ──────────────────────────────────────────────────
-Console.WriteLine("\n▸ Fase 3 — verificación de tipos");
+Console.WriteLine("\n-- Fase 3 - verificacion de tipos");
 
 RunTest("tipos correctos", @"
 package main;
@@ -151,7 +183,7 @@ func main() int {
 ", true);
 
 // ── FASE 3 extendida: todos los casos del enunciado ───────────────────────
-Console.WriteLine("\n▸ Fase 3 — operadores extendidos");
+Console.WriteLine("\n-- Fase 3 - operadores extendidos");
 
 RunTest("operadores multiplicativos correctos", @"
 package main;
@@ -234,7 +266,7 @@ func main() int {
 };
 ", false);
 
-Console.WriteLine("\n▸ Fase 3 — structs, arrays, slices");
+Console.WriteLine("\n-- Fase 3 - structs, arrays, slices");
 
 RunTest("struct declaración y acceso a campo", @"
 package main;
@@ -273,7 +305,7 @@ func main() int {
 };
 ", false);
 
-Console.WriteLine("\n▸ Fase 3 — funciones y retorno");
+Console.WriteLine("\n-- Fase 3 - funciones y retorno");
 
 RunTest("función void (sin retorno)", @"
 package main;
@@ -316,7 +348,7 @@ func main() int {
 };
 ", true);
 
-Console.WriteLine("\n▸ Fase 3 — control de flujo");
+Console.WriteLine("\n-- Fase 3 - control de flujo");
 
 RunTest("switch básico correcto", @"
 package main;
@@ -385,7 +417,7 @@ func main() int {
 };
 ", true);
 
-Console.WriteLine("\n▸ Fase 3 — declaraciones de variable");
+Console.WriteLine("\n-- Fase 3 - declaraciones de variable");
 
 RunTest("var múltiple con tipo", @"
 package main;
@@ -455,8 +487,8 @@ func main() int {
 };
 ", false);
 
-// ── Fase 4 — verificación básica de IR generado ───────────────────────────
-Console.WriteLine("\n▸ Fase 4 — código LLVM IR generado");
+// -- Fase 4 - verificacion basica de IR generado
+Console.WriteLine("\n-- Fase 4 - codigo LLVM IR generado");
 
 void RunCodeGenTest(string label, string source, params string[] mustContain)
 {
@@ -464,7 +496,7 @@ void RunCodeGenTest(string label, string source, params string[] mustContain)
     var res = new CompilerPipeline().Run(source);
     string ir = res.LLVMIr ?? "";
     bool ok = res.Success && mustContain.All(s => ir.Contains(s));
-    Console.WriteLine($"\n  {(ok ? "✅ PASS" : "❌ FAIL")}  {label}");
+    Console.WriteLine($"\n  {(ok ? "[PASS]" : "[FAIL]")}  {label}");
     if (!ok)
     {
         if (!res.Success) Console.WriteLine("         Compilación falló.");
@@ -536,7 +568,7 @@ func main() int {
     "store i64");
 
 // ── Resumen ────────────────────────────────────────────────────────────────
-Console.WriteLine($"\n{'═',58}");
-Console.WriteLine($"  Resultado: {pass} ✅ pass  |  {fail} ❌ fail  |  {pass+fail} total");
-Console.WriteLine($"{'═',58}\n");
+Console.WriteLine($"\n{"=========================================================="}");
+Console.WriteLine($"  Resultado: {pass} pass  |  {fail} fail  |  {pass+fail} total");
+Console.WriteLine($"{"=========================================================="}\n");
 Environment.Exit(fail > 0 ? 1 : 0);

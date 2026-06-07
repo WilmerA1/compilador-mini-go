@@ -1,0 +1,83 @@
+// TEST TIPOS EXTRA CODEGEN
+// Cubre: type alias, print (sin newline), println con string/bool/float64/rune,
+//        float64 aritmetica, rune literal, variables globales de distintos tipos
+
+package main;
+
+// ── Type aliases (solo declaracion — el checker los trata como tipos distintos) ─
+type Entero int;
+type Bandera bool;
+
+// ── Globales de distintos tipos ────────────────────────────────────────────────
+var PI      float64 = 3.14;
+var NOMBRE  string  = "Mini-GO";
+var ACTIVO  bool    = true;
+var BASE    int     = 7;
+
+func main() int {
+
+    // ── Type alias: declaracion zero-value (el checker los trata como tipos propios)
+    var e Entero;
+    println(e);      // 0
+
+    // ── print (sin newline) + println ─────────────────────────────────────────
+    print(10);
+    print(20);
+    println(30);  // 102030
+
+    // ── println con string ─────────────────────────────────────────────────────
+    println("Hola mundo");        // Hola mundo
+    println("compilador");        // compilador
+
+    // ── Concatenacion de strings ───────────────────────────────────────────────
+    var s1 string = "Mini";
+    var s2 string = "-GO";
+    var s3 string = s1 + s2;
+    println(s3);  // Mini-GO
+
+    // ── Variables globales string y bool ──────────────────────────────────────
+    println(NOMBRE);   // Mini-GO
+    if ACTIVO { println(1); } else { println(0); };  // 1
+
+    // ── float64: declaracion y aritmetica ─────────────────────────────────────
+    var fa float64 = 10.0;
+    var fb float64 = 3.0;
+    var suma float64 = fa + fb;
+    var diff float64 = fa - fb;
+    var prod float64 = fa * fb;
+    var div  float64 = fa / fb;
+    println(suma);  // 13
+    println(diff);  // 7
+    println(prod);  // 30
+    println(div);   // 3.33333...
+
+    // ── PI global float64 ─────────────────────────────────────────────────────
+    var radio float64 = 5.0;
+    var area float64 = PI * radio * radio;
+    println(area);  // 78.5
+
+    // ── Comparaciones float64 ─────────────────────────────────────────────────
+    var fx float64 = 1.5;
+    var fy float64 = 2.5;
+    if fx < fy { println(1); } else { println(0); };  // 1
+
+    // ── Rune literal ──────────────────────────────────────────────────────────
+    var c rune = 'A';     // 65
+    var n rune = 'Z';     // 90
+    var diff_rune rune = n - c;
+    println(c);           // 65
+    println(n);           // 90
+    println(diff_rune);   // 25
+
+    // ── println con bool directo ──────────────────────────────────────────────
+    var t bool = true;
+    var f bool = false;
+    println(t);  // 1
+    println(f);  // 0
+
+    // ── Global int en operacion ───────────────────────────────────────────────
+    var res int = BASE * BASE;
+    println(res);  // 49
+
+    return 0;
+};
