@@ -908,7 +908,23 @@ namespace MiniGoCompiler
                 string initVal = ZeroFor(llvmType);
 
                 if (initExprs != null && i < initExprs.Length)
-                    initVal = TryConstantLLVM(initExprs[i], llvmType) ?? ZeroFor(llvmType);
+                {
+                    if (llvmType == "i8*")
+                    {
+                        // String global: requiere constant GEP expression en la declaracion
+                        string? content = TryGetStringContent(initExprs[i]);
+                        if (content != null)
+                        {
+                            string gName = InternString(content);
+                            EscapeForLLVM(content, out int bLen);
+                            initVal = $"getelementptr ([{bLen} x i8], [{bLen} x i8]* {gName}, i64 0, i64 0)";
+                        }
+                    }
+                    else
+                    {
+                        initVal = TryConstantLLVM(initExprs[i], llvmType) ?? ZeroFor(llvmType);
+                    }
+                }
 
                 G($"@g.{name} = global {llvmType} {initVal}");
                 DefVar(name, $"@g.{name}", llvmType, isGlobal: true);
@@ -937,6 +953,18 @@ namespace MiniGoCompiler
                     if (text == "false") return "0";
                     break;
             }
+            return null;
+        }
+
+        // Extrae el contenido de un string literal de una expresión simple (sin comillas).
+        // Retorna null si la expresión no es un literal de string.
+        private static string? TryGetStringContent(MiniGoParser.ExpressionContext expr)
+        {
+            string text = expr.GetText().Trim();
+            if (text.Length >= 2 && text[0] == '"' && text[^1] == '"')
+                return text[1..^1];
+            if (text.Length >= 2 && text[0] == '`' && text[^1] == '`')
+                return text[1..^1];
             return null;
         }
 
