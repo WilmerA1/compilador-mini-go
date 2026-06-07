@@ -1160,8 +1160,14 @@ namespace MiniGoCompiler
         public override LLVMValue? VisitEmptyStmt(MiniGoParser.EmptyStmtContext ctx)
             => LLVMValue.Void;
 
+        // typeDecl a nivel top-level (no desciende a los hijos — evita que los campos
+        // de struct emitan 'alloca' fuera de función)
+        public override LLVMValue? VisitTypeDecl(MiniGoParser.TypeDeclContext ctx)
+            => LLVMValue.Void;
+
+        // typeDecl usado como statement dentro de función
         public override LLVMValue? VisitTypeDeclWrapper(MiniGoParser.TypeDeclWrapperContext ctx)
-            => LLVMValue.Void;   // declaraciones de tipo no generan código IR
+            => LLVMValue.Void;
 
         // wrappers de statements simples
         public override LLVMValue? VisitSimpleStmtWrapper(MiniGoParser.SimpleStmtWrapperContext ctx)

@@ -103,9 +103,9 @@ namespace MiniGoCompiler
             codeGen.Visit(parseTree);
             string llvmIr = codeGen.GetIR();
 
-            // Escribir output.ll al directorio de trabajo actual
+            // Escribir output.ll junto al directorio de trabajo (útil para flujo de terminal)
             try { File.WriteAllText("output.ll", llvmIr, new System.Text.UTF8Encoding(false)); }
-            catch { /* no crítico si el archivo no se puede escribir */ }
+            catch { /* no crítico */ }
 
             return new CompilationResult(true, parseTree, parser, llvmIr);
         }
