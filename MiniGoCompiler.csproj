@@ -39,6 +39,8 @@
   <ItemGroup>
     <!-- TestRunner.cs fue un intento descartado; se excluye para evitar conflicto de top-level statements -->
     <Compile Remove="TestRunner.cs" />
+    <!-- Excluir subproyecto MiniGoTests para que no interfiera con el proyecto principal -->
+    <Compile Remove="MiniGoTests\**\*.cs" />
   </ItemGroup>
 
 </Project>

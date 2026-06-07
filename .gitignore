@@ -12,3 +12,6 @@ obj/
 *.dll
 *.exe
 *.pdb
+
+# Archivos LLVM IR generados (output del compilador, no código fuente)
+*.ll
