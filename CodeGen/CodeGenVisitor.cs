@@ -821,7 +821,7 @@ namespace MiniGoCompiler
                 case "i64":    fmt = $"%lld{nl}"; break;
                 case "double": fmt = $"%g{nl}";   break;
                 case "i8*":    fmt = $"%s{nl}";   break;
-                case "i32":    fmt = $"%c{nl}";   break;
+                case "i32":    fmt = $"%d{nl}";   break;
                 case "i1":
                     fmt = $"%d{nl}";
                     string ext = NewReg();
