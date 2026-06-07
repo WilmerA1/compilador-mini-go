@@ -59,6 +59,10 @@ namespace MiniGoCompiler
             sb.AppendLine("; ─── declaraciones externas ─────────────────────────");
             sb.AppendLine("declare i32 @printf(i8* noundef, ...)");
             sb.AppendLine("declare void @exit(i32 noundef)");
+            sb.AppendLine("declare i64 @strlen(i8* noundef)");
+            sb.AppendLine("declare i8* @malloc(i64 noundef)");
+            sb.AppendLine("declare i8* @strcpy(i8* noundef, i8* noundef)");
+            sb.AppendLine("declare i8* @strcat(i8* noundef, i8* noundef)");
 
             if (_globals.Length > 0)
             {
@@ -564,8 +568,18 @@ namespace MiniGoCompiler
             bool isFloat = lhs.LLVMType == "double";
             string it    = lhs.LLVMType;
 
-            // Concatenación de strings: retorna lhs (simplificación — IR no tiene strcat nativo)
-            if (lhs.LLVMType == "i8*" && op == "+") return lhs;
+            // Concatenación de strings: malloc + strcpy + strcat
+            if (lhs.LLVMType == "i8*" && op == "+")
+            {
+                string len1 = NewReg(); E($"{len1} = call i64 @strlen(i8* noundef {lhs})");
+                string len2 = NewReg(); E($"{len2} = call i64 @strlen(i8* noundef {rhs})");
+                string tot  = NewReg(); E($"{tot}  = add i64 {len1}, {len2}");
+                string tot1 = NewReg(); E($"{tot1} = add i64 {tot}, 1");
+                string buf  = NewReg(); E($"{buf}  = call i8* @malloc(i64 noundef {tot1})");
+                string cp   = NewReg(); E($"{cp}   = call i8* @strcpy(i8* noundef {buf}, i8* noundef {lhs})");
+                string cat  = NewReg(); E($"{cat}  = call i8* @strcat(i8* noundef {buf}, i8* noundef {rhs})");
+                return new LLVMValue(buf, "i8*");
+            }
 
             string r = NewReg();
             string instr = (op, isFloat) switch
