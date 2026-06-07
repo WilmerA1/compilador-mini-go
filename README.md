@@ -47,27 +47,15 @@ La solución es **publicar la aplicación a una carpeta permitida** (`AppData\Lo
 Abrí PowerShell en la carpeta del proyecto y ejecutá:
 
 ```powershell
-# Ejemplo con la ruta del proyecto de jalpi
-cd C:\Users\jalpi\Desktop\Proyecto_compiladores\compilador-mini-go
-dotnet publish -c Release -o C:\Users\jalpi\AppData\Local\Temp\mgo_gui
-```
-
-```powershell
-# Ejemplo genérico (reemplazá con tu ruta)
-cd C:\Users\TU_USUARIO\ruta\al\compilador-mini-go
-dotnet publish -c Release -o C:\Users\TU_USUARIO\AppData\Local\Temp\mgo_gui
+# Reemplazá <usuario> y ruta/del/proyecto con tus datos
+cd C:\Users\<usuario>\ruta\del\proyecto\compilador-mini-go
+dotnet publish -c Release -o C:\Users\<usuario>\AppData\Local\Temp\mgo_gui
 ```
 
 ### Paso 2 — Ejecutar
 
 ```powershell
-# Ejemplo con la ruta de jalpi
-C:\Users\jalpi\AppData\Local\Temp\mgo_gui\MiniGoCompiler.exe
-```
-
-```powershell
-# Ejemplo genérico
-C:\Users\TU_USUARIO\AppData\Local\Temp\mgo_gui\MiniGoCompiler.exe
+C:\Users\<usuario>\AppData\Local\Temp\mgo_gui\MiniGoCompiler.exe
 ```
 
 ### Flujo de trabajo en la GUI
@@ -91,25 +79,15 @@ La suite corre 48 pruebas automáticas que cubren las fases 1, 2, 3 y 4.
 ### Paso 1 — Publicar el ejecutable de pruebas
 
 ```powershell
-# Ejemplo con la ruta de jalpi
-cd C:\Users\jalpi\Desktop\Proyecto_compiladores\compilador-mini-go\MiniGoTests
-dotnet publish -c Release -o C:\Users\jalpi\AppData\Local\Temp\mgo_test
-```
-
-```powershell
-# Ejemplo genérico
-cd C:\Users\TU_USUARIO\ruta\al\compilador-mini-go\MiniGoTests
-dotnet publish -c Release -o C:\Users\TU_USUARIO\AppData\Local\Temp\mgo_test
+# Reemplazá <usuario> y ruta/del/proyecto con tus datos
+cd C:\Users\<usuario>\ruta\del\proyecto\compilador-mini-go\MiniGoTests
+dotnet publish -c Release -o C:\Users\<usuario>\AppData\Local\Temp\mgo_test
 ```
 
 ### Paso 2 — Correr la suite
 
 ```powershell
-# Ejemplo con la ruta de jalpi
-C:\Users\jalpi\AppData\Local\Temp\mgo_test\MiniGoTests.exe
-
-# Ejemplo genérico
-C:\Users\TU_USUARIO\AppData\Local\Temp\mgo_test\MiniGoTests.exe
+C:\Users\<usuario>\AppData\Local\Temp\mgo_test\MiniGoTests.exe
 ```
 
 Resultado esperado:
@@ -127,11 +105,7 @@ Para compilar un `.mgo` manualmente sin usar la GUI:
 ### Paso 1 — Generar el IR desde el ejecutable de pruebas
 
 ```powershell
-# Ejemplo con la ruta de jalpi
-C:\Users\jalpi\AppData\Local\Temp\mgo_test\MiniGoTests.exe "C:\Users\jalpi\Desktop\Proyecto_compiladores\compilador-mini-go\TestFiles\test_completo_codegen.mgo"
-
-# Ejemplo genérico
-C:\Users\TU_USUARIO\AppData\Local\Temp\mgo_test\MiniGoTests.exe "C:\ruta\al\archivo.mgo"
+C:\Users\<usuario>\AppData\Local\Temp\mgo_test\MiniGoTests.exe "C:\Users\<usuario>\ruta\del\proyecto\compilador-mini-go\TestFiles\test_completo_codegen.mgo"
 ```
 
 Esto genera `archivo.ll` en la misma carpeta que el `.mgo`.
@@ -141,11 +115,7 @@ Esto genera `archivo.ll` en la misma carpeta que el `.mgo`.
 Abrí el **Developer Command Prompt for VS 2022** (menú inicio) y ejecutá:
 
 ```cmd
-# Ejemplo con la ruta de jalpi
-"C:\Program Files\LLVM\bin\clang.exe" "C:\Users\jalpi\Desktop\Proyecto_compiladores\compilador-mini-go\TestFiles\test_completo_codegen.ll" -o "C:\Users\jalpi\Documents\programa.exe"
-
-# Ejemplo genérico
-"C:\Program Files\LLVM\bin\clang.exe" "C:\ruta\al\archivo.ll" -o "C:\Users\TU_USUARIO\Documents\programa.exe"
+"C:\Program Files\LLVM\bin\clang.exe" "C:\Users\<usuario>\ruta\del\proyecto\compilador-mini-go\TestFiles\test_completo_codegen.ll" -o "C:\Users\<usuario>\Documents\programa.exe"
 ```
 
 > El `.exe` debe generarse en `Documents\` u otra carpeta de usuario.  
@@ -154,14 +124,14 @@ Abrí el **Developer Command Prompt for VS 2022** (menú inicio) y ejecutá:
 ### Paso 3 — Ejecutar
 
 ```cmd
-"C:\Users\jalpi\Documents\programa.exe"
+"C:\Users\<usuario>\Documents\programa.exe"
 ```
 
 ---
 
 ## Ejemplo completo — Factorial
 
-Crear el archivo `C:\Users\jalpi\Documents\factorial.mgo`:
+Crear el archivo `C:\Users\<usuario>\Documents\factorial.mgo`:
 
 ```go
 package main;
@@ -180,17 +150,17 @@ func main() int {
 
 ```powershell
 # 1. Generar .ll (desde el ejecutable de tests)
-C:\Users\jalpi\AppData\Local\Temp\mgo_test\MiniGoTests.exe "C:\Users\jalpi\Documents\factorial.mgo"
+C:\Users\<usuario>\AppData\Local\Temp\mgo_test\MiniGoTests.exe "C:\Users\<usuario>\Documents\factorial.mgo"
 ```
 
 En el Developer Command Prompt for VS 2022:
 
 ```cmd
 # 2. Compilar a .exe
-"C:\Program Files\LLVM\bin\clang.exe" "C:\Users\jalpi\Documents\factorial.ll" -o "C:\Users\jalpi\Documents\factorial.exe"
+"C:\Program Files\LLVM\bin\clang.exe" "C:\Users\<usuario>\Documents\factorial.ll" -o "C:\Users\<usuario>\Documents\factorial.exe"
 
 # 3. Ejecutar
-"C:\Users\jalpi\Documents\factorial.exe"
+"C:\Users\<usuario>\Documents\factorial.exe"
 ```
 
 Salida esperada: `120`
